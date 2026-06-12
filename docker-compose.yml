@@ -140,7 +140,9 @@ services:
 
   # ── Crew Runner (LangGraph Agent) ─────────────────────────────────────────
   crew-runner:
-    build: ./agent/crew
+    build:
+      context: ./agent
+      dockerfile: crew/Dockerfile
     restart: unless-stopped
     env_file: .env
     depends_on:
