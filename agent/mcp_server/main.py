@@ -22,9 +22,10 @@ from auth import AuthError, TenantContext, resolve_api_key
 REQUIRED_ENV = [
     "MONGODB_URI", "MONGODB_DB", "REDIS_URL",
     "OWNER_API_KEY", "OWNER_TENANT_ID",
-    "OPENROUTER_API_KEY", "PERPLEXITY_API_KEY",
+    "OPENROUTER_API_KEY",
     "MCP_SERVER_URL",
 ]
+# Optional: PERPLEXITY_API_KEY — web search tool degrades gracefully without it
 
 def _validate_env():
     missing = [k for k in REQUIRED_ENV if not os.getenv(k)]
