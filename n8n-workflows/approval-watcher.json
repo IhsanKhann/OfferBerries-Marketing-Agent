@@ -1,0 +1,52 @@
+{
+  "name": "Post Approval Watcher",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "post-approved",
+        "authentication": "headerAuth",
+        "options": {}
+      },
+      "id": "webhook-approval",
+      "name": "Post Approved Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0],
+      "webhookId": "post-approved"
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "=http://postiz:3000/api/posts/{{ $json.postiz_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $env.POSTIZ_SECRET }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "status", "value": "approved" }
+          ]
+        }
+      },
+      "id": "approve-in-postiz",
+      "name": "Update Postiz Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [200, 0]
+    }
+  ],
+  "connections": {
+    "Post Approved Webhook": {
+      "main": [
+        [{ "node": "Update Postiz Status", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" }
+}

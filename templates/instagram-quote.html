@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Instagram Quote</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,600;0,700;1,400;1,600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --brand-primary: #4B0082;
+    --brand-hr: #6366F1;
+    --font-display: 'Plus Jakarta Sans', sans-serif;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1080px; height: 1080px; overflow: hidden; font-family: var(--font-display); }
+  .card {
+    width: 1080px; height: 1080px;
+    background: linear-gradient(135deg, var(--brand-primary) 0%, var(--brand-hr) 100%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 80px;
+    position: relative;
+  }
+  /* Geometric pattern corners */
+  .corner {
+    position: absolute;
+    width: 200px; height: 200px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.05);
+  }
+  .corner-tl { top: -60px; left: -60px; }
+  .corner-br { bottom: -60px; right: -60px; }
+  .corner-tr { top: -40px; right: -40px; width: 120px; height: 120px; }
+  .corner-bl { bottom: -40px; left: -40px; width: 120px; height: 120px; }
+  .quotemark {
+    font-size: 180px;
+    font-weight: 800;
+    color: rgba(255,255,255,0.15);
+    line-height: 0.7;
+    align-self: flex-start;
+    margin-bottom: 8px;
+    font-family: Georgia, serif;
+  }
+  .quote-text {
+    font-size: 30px;
+    font-weight: 500;
+    font-style: italic;
+    color: #fff;
+    text-align: center;
+    line-height: 1.5;
+    max-width: 800px;
+    margin-bottom: 48px;
+    position: relative;
+    z-index: 1;
+  }
+  .attribution {
+    font-size: 16px;
+    font-weight: 600;
+    color: rgba(255,255,255,0.75);
+    text-align: center;
+    letter-spacing: 0.04em;
+  }
+  .logo {
+    position: absolute;
+    bottom: 48px;
+    font-size: 13px;
+    font-weight: 700;
+    color: rgba(255,255,255,0.5);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="corner corner-tl"></div>
+  <div class="corner corner-br"></div>
+  <div class="corner corner-tr"></div>
+  <div class="corner corner-bl"></div>
+  <div class="quotemark">"</div>
+  <div class="quote-text" id="quote-text">OfferBerries saved us 3 days every month on payroll. Our team can now focus on what actually matters.</div>
+  <div class="attribution" id="attribution">— CEO, Karachi Textiles Pvt Ltd</div>
+  <div class="logo">OfferBerries</div>
+</div>
+<script>
+  const d = window.CONTENT_DATA || {};
+  document.getElementById('quote-text').textContent = d.quote || 'Your quote goes here.';
+  document.getElementById('attribution').textContent = d.attribution ? `— ${d.attribution}` : '— OfferBerries Customer';
+  const moduleColors = { hr: '#6366F1', finance: '#0EA5E9', ops: '#F97316', executive: '#10B981' };
+  if (d.module_accent && moduleColors[d.module_accent]) {
+    document.querySelector('.card').style.background =
+      `linear-gradient(135deg, #4B0082 0%, ${moduleColors[d.module_accent]} 100%)`;
+  }
+</script>
+</body>
+</html>

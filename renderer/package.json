@@ -1,0 +1,20 @@
+{
+  "name": "offerberries-renderer",
+  "version": "1.0.0",
+  "description": "Playwright-based HTML-to-PNG renderer for OfferBerries Marketing Agent",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test tests/test_render.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "express-rate-limit": "^7.3.1",
+    "playwright": "^1.44.0",
+    "uuid": "^10.0.0",
+    "sharp": "^0.33.4"
+  },
+  "devDependencies": {
+    "node-fetch": "^3.3.2"
+  }
+}

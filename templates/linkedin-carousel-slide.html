@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>LinkedIn Carousel Slide</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --brand-primary: #4B0082;
+    --sidebar-dark: #0F172A;
+    --text-primary: #1E293B;
+    --text-secondary: #64748B;
+    --surface: #FFFFFF;
+    --border: #E2E8F0;
+    --font-display: 'Plus Jakarta Sans', sans-serif;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1080px; height: 1080px; overflow: hidden; font-family: var(--font-display); background: var(--surface); }
+  .card {
+    width: 1080px; height: 1080px;
+    padding: 64px;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+  }
+  .slide-indicator {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--brand-primary);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-bottom: 48px;
+  }
+  .slide-title {
+    font-size: 42px;
+    font-weight: 700;
+    color: var(--text-primary);
+    line-height: 1.2;
+    margin-bottom: 32px;
+  }
+  .slide-body {
+    font-size: 20px;
+    font-weight: 400;
+    color: var(--text-secondary);
+    line-height: 1.6;
+    flex: 1;
+  }
+  .slide-bottom {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-top: 40px;
+    border-top: 1px solid var(--border);
+  }
+  .micro-logo {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--brand-primary);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .cta-btn {
+    padding: 12px 28px;
+    background: var(--brand-primary);
+    color: #fff;
+    font-size: 14px;
+    font-weight: 600;
+    border-radius: 6px;
+    letter-spacing: 0.02em;
+  }
+  .left-accent {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 6px;
+    background: var(--brand-primary);
+  }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="left-accent"></div>
+  <div class="slide-indicator" id="indicator">1 / 4</div>
+  <div class="slide-title" id="slide-title">Slide Title</div>
+  <div class="slide-body" id="slide-body">Slide body content goes here with the key point for this slide in the carousel series.</div>
+  <div class="slide-bottom">
+    <div class="micro-logo">OfferBerries</div>
+    <div class="cta-btn" id="cta-el" style="display:none">Learn more →</div>
+  </div>
+</div>
+<script>
+  const d = window.CONTENT_DATA || {};
+  document.getElementById('indicator').textContent = `${d.slide_number || 1} / ${d.total_slides || 4}`;
+  document.getElementById('slide-title').textContent = d.slide_title || 'Slide Title';
+  document.getElementById('slide-body').textContent = d.slide_body || 'Slide body content.';
+  if (d.is_last && d.cta) {
+    const cta = document.getElementById('cta-el');
+    cta.style.display = 'block';
+    cta.textContent = d.cta;
+  }
+</script>
+</body>
+</html>

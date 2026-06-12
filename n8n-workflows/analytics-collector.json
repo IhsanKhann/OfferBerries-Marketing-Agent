@@ -1,0 +1,48 @@
+{
+  "name": "Analytics Collector",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 17 * * 0"
+            }
+          ]
+        }
+      },
+      "id": "cron-analytics",
+      "name": "Every Sunday 22:00 PKT",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://crew-runner:8001/analytics/collect",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "X-API-Key", "value": "={{ $env.OWNER_API_KEY }}" }
+          ]
+        }
+      },
+      "id": "collect-analytics",
+      "name": "Collect Analytics",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [200, 0]
+    }
+  ],
+  "connections": {
+    "Every Sunday 22:00 PKT": {
+      "main": [
+        [{ "node": "Collect Analytics", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" }
+}

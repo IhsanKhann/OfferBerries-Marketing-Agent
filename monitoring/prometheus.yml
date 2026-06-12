@@ -1,0 +1,19 @@
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+
+scrape_configs:
+  - job_name: mcp-server
+    static_configs:
+      - targets: ['mcp-server:8000']
+    metrics_path: /metrics
+
+  - job_name: crew-runner
+    static_configs:
+      - targets: ['crew-runner:8001']
+    metrics_path: /metrics
+
+  - job_name: renderer
+    static_configs:
+      - targets: ['renderer:3001']
+    metrics_path: /metrics

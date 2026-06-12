@@ -1,0 +1,15 @@
+{
+  "week_of": "auto",
+  "topic_focus": "hr_payroll",
+  "format_preference": "carousel",
+  "platform_priority": ["linkedin", "twitter", "instagram"],
+  "tone_notes": "emphasise Pakistani compliance angle this week",
+  "avoid_topics": [],
+  "posting_schedule": {
+    "linkedin": ["Monday 10:00", "Wednesday 14:00", "Friday 10:00"],
+    "twitter": ["Monday 09:00", "Tuesday 12:00", "Wednesday 09:00", "Thursday 12:00", "Friday 09:00"],
+    "instagram": ["Tuesday 18:00", "Thursday 18:00", "Saturday 11:00"]
+  },
+  "competitor_watchlist": ["figma", "stripe", "shopify"],
+  "performance_baseline": null
+}

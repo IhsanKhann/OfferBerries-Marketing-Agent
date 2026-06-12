@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Email Header</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --brand-primary: #4B0082;
+    --brand-hr: #6366F1;
+    --brand-finance: #0EA5E9;
+    --brand-ops: #F97316;
+    --brand-executive: #10B981;
+    --surface-2: #F8FAFC;
+    --text-primary: #1E293B;
+    --text-secondary: #64748B;
+    --font-display: 'Plus Jakarta Sans', sans-serif;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 600px; height: 200px; overflow: hidden; font-family: var(--font-display); }
+  .banner {
+    width: 600px; height: 200px;
+    background: var(--surface-2);
+    border-bottom: 4px solid var(--accent-color, var(--brand-primary));
+    display: flex;
+    align-items: center;
+    padding: 0 40px;
+    justify-content: space-between;
+  }
+  .left-block {}
+  .wordmark {
+    font-size: 22px;
+    font-weight: 800;
+    color: var(--brand-primary);
+    letter-spacing: -0.01em;
+    margin-bottom: 6px;
+  }
+  .tagline {
+    font-size: 13px;
+    font-weight: 400;
+    color: var(--text-secondary);
+  }
+  .right-block {
+    text-align: right;
+  }
+  .week-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent-color, var(--brand-primary));
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  .module-pill {
+    display: inline-block;
+    padding: 6px 16px;
+    background: var(--accent-color, var(--brand-primary));
+    color: #fff;
+    font-size: 12px;
+    font-weight: 700;
+    border-radius: 20px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+</style>
+</head>
+<body>
+<div class="banner">
+  <div class="left-block">
+    <div class="wordmark">OfferBerries</div>
+    <div class="tagline" id="tagline">ERP for Pakistani SMBs</div>
+  </div>
+  <div class="right-block">
+    <div class="week-label" id="week-label">Week 24</div>
+    <div class="module-pill" id="module-pill">HR Module</div>
+  </div>
+</div>
+<script>
+  const d = window.CONTENT_DATA || {};
+  const moduleColors = { hr: '#6366F1', finance: '#0EA5E9', ops: '#F97316', executive: '#10B981' };
+  const moduleLabels = { hr: 'HR Module', finance: 'Finance', ops: 'BusinessOps', executive: 'Full ERP' };
+  const accent = moduleColors[d.module_color] || '#4B0082';
+  document.documentElement.style.setProperty('--accent-color', accent);
+  document.getElementById('week-label').textContent = d.week_label || 'This Week';
+  document.getElementById('module-pill').textContent = moduleLabels[d.module_color] || 'OfferBerries ERP';
+  document.getElementById('tagline').textContent = d.tagline || 'ERP for Pakistani SMBs';
+</script>
+</body>
+</html>

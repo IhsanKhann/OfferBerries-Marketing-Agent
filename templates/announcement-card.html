@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Announcement Card</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --brand-primary: #4B0082;
+    --text-primary: #1E293B;
+    --text-secondary: #64748B;
+    --surface: #FFFFFF;
+    --border: #E2E8F0;
+    --font-display: 'Plus Jakarta Sans', sans-serif;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1080px; height: 1080px; overflow: hidden; font-family: var(--font-display); background: var(--surface); }
+  .card {
+    width: 1080px; height: 1080px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 80px;
+    position: relative;
+  }
+  .top-stripe {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 8px;
+    background: linear-gradient(90deg, var(--brand-primary), #6366F1);
+  }
+  .emoji-block {
+    font-size: 96px;
+    margin-bottom: 40px;
+    line-height: 1;
+  }
+  .title {
+    font-size: 52px;
+    font-weight: 700;
+    color: var(--brand-primary);
+    text-align: center;
+    line-height: 1.15;
+    margin-bottom: 32px;
+    max-width: 800px;
+  }
+  .body-text {
+    font-size: 22px;
+    font-weight: 400;
+    color: var(--text-secondary);
+    text-align: center;
+    line-height: 1.6;
+    max-width: 720px;
+    margin-bottom: 56px;
+  }
+  .bottom {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    flex-direction: column;
+  }
+  .product-badge {
+    padding: 8px 20px;
+    border: 2px solid var(--brand-primary);
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--brand-primary);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .cta-btn {
+    padding: 16px 40px;
+    background: var(--brand-primary);
+    color: #fff;
+    font-size: 16px;
+    font-weight: 700;
+    border-radius: 8px;
+    letter-spacing: 0.02em;
+  }
+  .logo-footer {
+    position: absolute;
+    bottom: 40px;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-secondary);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="top-stripe"></div>
+  <div class="emoji-block" id="emoji-el">🚀</div>
+  <div class="title" id="title-el">Big Announcement</div>
+  <div class="body-text" id="body-el">Something exciting is happening at OfferBerries. Stay tuned for more details.</div>
+  <div class="bottom">
+    <div class="product-badge" id="product-el">OfferBerries ERP</div>
+    <div class="cta-btn" id="cta-el">Learn More →</div>
+  </div>
+  <div class="logo-footer">OfferBerries · Built for Pakistani SMBs</div>
+</div>
+<script>
+  const d = window.CONTENT_DATA || {};
+  document.getElementById('emoji-el').textContent = d.emoji || '🚀';
+  document.getElementById('title-el').textContent = d.title || 'Big Announcement';
+  document.getElementById('body-el').textContent = d.body || 'Something exciting is happening at OfferBerries.';
+  document.getElementById('product-el').textContent = d.product_name || 'OfferBerries ERP';
+  document.getElementById('cta-el').textContent = d.cta || 'Learn More →';
+</script>
+</body>
+</html>

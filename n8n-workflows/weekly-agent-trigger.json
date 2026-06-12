@@ -1,0 +1,57 @@
+{
+  "name": "Weekly Agent Trigger",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "30 2 * * 1"
+            }
+          ]
+        }
+      },
+      "id": "cron-trigger",
+      "name": "Every Monday 07:30 PKT",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://crew-runner:8001/agent/run",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "X-API-Key", "value": "={{ $env.OWNER_API_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "topic", "value": "OfferBerries HR and payroll automation Pakistan" },
+            { "name": "platform_filter", "value": "[\"linkedin\", \"twitter\", \"instagram\"]" },
+            { "name": "dry_run", "value": "false" }
+          ]
+        }
+      },
+      "id": "http-trigger-agent",
+      "name": "Trigger Agent Run",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [200, 0]
+    }
+  ],
+  "connections": {
+    "Every Monday 07:30 PKT": {
+      "main": [
+        [{ "node": "Trigger Agent Run", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" }
+}

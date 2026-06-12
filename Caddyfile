@@ -1,0 +1,26 @@
+agent.{$DOMAIN} {
+    route /postiz/* {
+        uri strip_prefix /postiz
+        reverse_proxy postiz:3000
+    }
+    route /design-link {
+        redir https://design.{$DOMAIN} 302
+    }
+    reverse_proxy dashboard:3002
+}
+
+n8n.{$DOMAIN} {
+    reverse_proxy n8n:5678
+}
+
+design.{$DOMAIN} {
+    reverse_proxy open-design:7456
+    header Authorization "Bearer {$OD_API_TOKEN}"
+}
+
+monitoring.{$DOMAIN} {
+    basicauth {
+        admin {$GRAFANA_ADMIN_PASSWORD}
+    }
+    reverse_proxy grafana:3003
+}

@@ -1,0 +1,267 @@
+networks:
+  marketing-net:
+    driver: bridge
+
+volumes:
+  redis-data:
+  postgres-data:
+  postiz-uploads:
+  od-projects:
+  renderer-output:
+  n8n-data:
+  caddy-data:
+  caddy-config:
+  grafana-data:
+  prometheus-data:
+
+services:
+  # ── Redis ──────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+    networks:
+      - marketing-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Postgres ───────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - marketing-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Postiz ─────────────────────────────────────────────────────────────────
+  postiz:
+    image: ghcr.io/gitroomhq/postiz-app:latest
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: ${REDIS_URL}
+      MAIN_URL: https://agent.${DOMAIN}/postiz
+      JWT_SECRET: ${POSTIZ_SECRET}
+      STORAGE_PROVIDER: local
+      UPLOAD_DIRECTORY: /app/uploads
+    volumes:
+      - postiz-uploads:/app/uploads
+    expose:
+      - "3000"
+    networks:
+      - marketing-net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # ── Open Design ────────────────────────────────────────────────────────────
+  open-design:
+    image: docker.io/vanjayak/open-design:latest
+    restart: unless-stopped
+    environment:
+      OD_API_TOKEN: ${OD_API_TOKEN}
+      OD_BIND_HOST: 0.0.0.0
+      OPEN_DESIGN_ALLOWED_ORIGINS: ${OPEN_DESIGN_ALLOWED_ORIGINS}
+    volumes:
+      - od-projects:/app/projects
+      - ./agent/od-skills:/app/skills/custom
+    expose:
+      - "7456"
+    networks:
+      - marketing-net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:7456/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # ── Renderer (Playwright) ──────────────────────────────────────────────────
+  renderer:
+    build: ./renderer
+    restart: unless-stopped
+    volumes:
+      - ./templates:/app/templates:ro
+      - renderer-output:/app/output
+    expose:
+      - "3001"
+    networks:
+      - marketing-net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3001/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # ── MCP Server ─────────────────────────────────────────────────────────────
+  mcp-server:
+    build: ./agent/mcp_server
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      redis:
+        condition: service_healthy
+      renderer:
+        condition: service_healthy
+    expose:
+      - "8000"
+    networks:
+      - marketing-net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # ── Crew Runner (LangGraph Agent) ─────────────────────────────────────────
+  crew-runner:
+    build: ./agent/crew
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      mcp-server:
+        condition: service_healthy
+    command: python -m uvicorn run_weekly:app --host 0.0.0.0 --port 8001
+    expose:
+      - "8001"
+    networks:
+      - marketing-net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8001/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # ── n8n ───────────────────────────────────────────────────────────────────
+  n8n:
+    image: n8nio/n8n
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_PORT: 5432
+      DB_POSTGRESDB_USER: ${POSTGRES_USER}
+      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_POSTGRESDB_DATABASE: ${POSTGRES_DB}
+      N8N_BASIC_AUTH_ACTIVE: "true"
+      N8N_BASIC_AUTH_USER: ${N8N_BASIC_AUTH_USER}
+      N8N_BASIC_AUTH_PASSWORD: ${N8N_BASIC_AUTH_PASSWORD}
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+      WEBHOOK_URL: https://n8n.${DOMAIN}
+      GENERIC_TIMEZONE: Asia/Karachi
+    volumes:
+      - n8n-data:/home/node/.n8n
+    expose:
+      - "5678"
+    networks:
+      - marketing-net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:5678/healthz || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # ── Dashboard (Next.js) ────────────────────────────────────────────────────
+  dashboard:
+    build: ./dashboard
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      mcp-server:
+        condition: service_healthy
+    expose:
+      - "3002"
+    networks:
+      - marketing-net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3002/api/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # ── Caddy (reverse proxy + TLS) ───────────────────────────────────────────
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      - marketing-net
+    depends_on:
+      - postiz
+      - dashboard
+      - n8n
+      - open-design
+    environment:
+      DOMAIN: ${DOMAIN}
+      OD_API_TOKEN: ${OD_API_TOKEN}
+
+  # ── Prometheus ────────────────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:latest
+    restart: unless-stopped
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    expose:
+      - "9090"
+    networks:
+      - marketing-net
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.enable-lifecycle"
+
+  # ── Grafana ───────────────────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:latest
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    expose:
+      - "3003"
+    networks:
+      - marketing-net

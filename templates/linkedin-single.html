@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LinkedIn Single Post</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --brand-primary: #4B0082;
+    --brand-hr: #6366F1;
+    --brand-finance: #0EA5E9;
+    --brand-ops: #F97316;
+    --brand-executive: #10B981;
+    --sidebar-dark: #0F172A;
+    --text-primary: #1E293B;
+    --text-secondary: #64748B;
+    --surface: #FFFFFF;
+    --surface-2: #F8FAFC;
+    --border: #E2E8F0;
+    --font-display: 'Plus Jakarta Sans', sans-serif;
+    --font-body: 'Plus Jakarta Sans', sans-serif;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 1080px;
+    height: 1080px;
+    overflow: hidden;
+    font-family: var(--font-display);
+  }
+  .container {
+    display: flex;
+    width: 1080px;
+    height: 1080px;
+  }
+  .sidebar {
+    width: 216px;
+    background: var(--sidebar-dark);
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 48px 24px;
+    flex-shrink: 0;
+  }
+  .wordmark {
+    color: #fff;
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    margin-bottom: 16px;
+  }
+  .module-pill {
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #fff;
+    background: var(--accent-color, var(--brand-primary));
+  }
+  .sidebar-bottom {
+    margin-top: auto;
+  }
+  .sidebar-label {
+    color: rgba(255,255,255,0.4);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    line-height: 1.4;
+  }
+  .content {
+    flex: 1;
+    background: var(--surface);
+    display: flex;
+    flex-direction: column;
+    padding: 72px 60px 40px;
+    position: relative;
+  }
+  .hook {
+    font-size: 48px;
+    font-weight: 700;
+    color: var(--text-primary);
+    line-height: 1.15;
+    flex: 1;
+    display: flex;
+    align-items: center;
+  }
+  .supporting {
+    font-size: 20px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    line-height: 1.5;
+    margin-bottom: 40px;
+    padding-top: 32px;
+    border-top: 1px solid var(--border);
+  }
+  .cta-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .cta-text {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--accent-color, var(--brand-primary));
+    letter-spacing: 0.02em;
+  }
+  .bottom-bar {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 6px;
+    background: linear-gradient(90deg, var(--accent-color, var(--brand-primary)), color-mix(in srgb, var(--accent-color, var(--brand-primary)) 60%, #fff));
+  }
+</style>
+</head>
+<body>
+<script>
+  const d = window.CONTENT_DATA || {};
+  const moduleColors = {
+    hr: '#6366F1',
+    finance: '#0EA5E9',
+    ops: '#F97316',
+    executive: '#10B981'
+  };
+  const accent = moduleColors[d.module_color] || '#4B0082';
+  document.documentElement.style.setProperty('--accent-color', accent);
+</script>
+<div class="container">
+  <div class="sidebar">
+    <div class="wordmark">OfferBerries</div>
+    <div class="module-pill" id="module-pill">ERP</div>
+    <div class="sidebar-bottom">
+      <div class="sidebar-label">Built for<br>Pakistani<br>SMBs</div>
+    </div>
+  </div>
+  <div class="content">
+    <div class="hook" id="hook-text">Placeholder hook text for the post</div>
+    <div class="supporting" id="supporting-text">Supporting point or key insight goes here</div>
+    <div class="cta-row">
+      <div class="cta-text" id="cta-text">Learn more →</div>
+    </div>
+    <div class="bottom-bar"></div>
+  </div>
+</div>
+<script>
+  const data = window.CONTENT_DATA || {};
+  const moduleLabels = { hr: 'HR Module', finance: 'Finance', ops: 'BusinessOps', executive: 'Full ERP' };
+  document.getElementById('hook-text').textContent = (data.copy || '').substring(0, 100) || 'Your hook goes here.';
+  document.getElementById('supporting-text').textContent = data.supporting_point || 'Key insight or supporting statistic.';
+  document.getElementById('cta-text').textContent = data.cta || 'Learn more →';
+  document.getElementById('module-pill').textContent = moduleLabels[data.module_color] || 'ERP';
+</script>
+</body>
+</html>

@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Instagram Carousel Slide</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --brand-primary: #4B0082;
+    --brand-hr: #6366F1;
+    --brand-finance: #0EA5E9;
+    --brand-ops: #F97316;
+    --brand-executive: #10B981;
+    --text-primary: #1E293B;
+    --text-secondary: #64748B;
+    --surface: #FFFFFF;
+    --font-display: 'Plus Jakarta Sans', sans-serif;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1080px; height: 1080px; overflow: hidden; font-family: var(--font-display); background: var(--surface); }
+  .card {
+    width: 1080px; height: 1080px;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+  }
+  .top-bar {
+    height: 20px;
+    background: var(--accent-color, var(--brand-primary));
+    flex-shrink: 0;
+  }
+  .content {
+    flex: 1;
+    padding: 60px 72px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    position: relative;
+  }
+  .step-bg-number {
+    position: absolute;
+    font-size: 240px;
+    font-weight: 800;
+    color: rgba(75,0,130,0.07);
+    right: 40px;
+    top: 50%;
+    transform: translateY(-60%);
+    line-height: 1;
+    user-select: none;
+  }
+  .step-title {
+    font-size: 44px;
+    font-weight: 700;
+    color: var(--text-primary);
+    line-height: 1.2;
+    margin-bottom: 32px;
+    position: relative;
+    z-index: 1;
+    max-width: 700px;
+  }
+  .step-body {
+    font-size: 20px;
+    font-weight: 400;
+    color: var(--text-secondary);
+    line-height: 1.6;
+    max-width: 700px;
+    position: relative;
+    z-index: 1;
+  }
+  .bottom {
+    padding: 32px 72px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-top: 1px solid #E2E8F0;
+  }
+  .logo {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--brand-primary);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .dots {
+    display: flex;
+    gap: 8px;
+  }
+  .dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: #E2E8F0;
+  }
+  .dot.active {
+    background: var(--accent-color, var(--brand-primary));
+    width: 24px;
+    border-radius: 4px;
+  }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="top-bar"></div>
+  <div class="content">
+    <div class="step-bg-number" id="step-bg">1</div>
+    <div class="step-title" id="step-title">Step Title</div>
+    <div class="step-body" id="step-body">The key action or insight for this step in the process.</div>
+  </div>
+  <div class="bottom">
+    <div class="logo">OfferBerries</div>
+    <div class="dots" id="dots"></div>
+  </div>
+</div>
+<script>
+  const d = window.CONTENT_DATA || {};
+  const moduleColors = { hr: '#6366F1', finance: '#0EA5E9', ops: '#F97316', executive: '#10B981' };
+  const accent = moduleColors[d.module_color] || '#4B0082';
+  document.documentElement.style.setProperty('--accent-color', accent);
+
+  document.getElementById('step-bg').textContent = d.step_number || '1';
+  document.getElementById('step-title').textContent = d.step_title || 'Step Title';
+  document.getElementById('step-body').textContent = d.step_body || 'Step description goes here.';
+
+  const total = d.total_steps || 4;
+  const current = d.step_number || 1;
+  const dotsEl = document.getElementById('dots');
+  for (let i = 1; i <= total; i++) {
+    const dot = document.createElement('div');
+    dot.className = i === current ? 'dot active' : 'dot';
+    dotsEl.appendChild(dot);
+  }
+</script>
+</body>
+</html>
