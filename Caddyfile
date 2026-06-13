@@ -1,3 +1,7 @@
+{
+    acme_http_port 9080
+}
+
 agent.{$DOMAIN} {
     route /postiz/* {
         uri strip_prefix /postiz
