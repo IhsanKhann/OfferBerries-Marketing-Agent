@@ -19,8 +19,5 @@ design.{$DOMAIN} {
 }
 
 monitoring.{$DOMAIN} {
-    basicauth {
-        admin {$GRAFANA_ADMIN_PASSWORD}
-    }
     reverse_proxy grafana:3003
 }
