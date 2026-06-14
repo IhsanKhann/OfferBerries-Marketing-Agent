@@ -6,24 +6,40 @@ on:
 
 jobs:
   deploy:
-    name: SSH deploy
+    name: Sync + rebuild
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
     steps:
-      - name: Verify secrets are set
-        run: |
-          missing=""
-          [ -z "${{ secrets.HETZNER_IP }}" ] && missing="$missing HETZNER_IP"
-          [ -z "${{ secrets.HETZNER_SSH_KEY }}" ] && missing="$missing HETZNER_SSH_KEY"
-          if [ -n "$missing" ]; then
-            echo "ERROR: missing secrets:$missing"
-            echo "Add them at: https://github.com/IhsanKhann/OfferBerries-Marketing-Agent/settings/secrets/actions"
-            exit 1
-          fi
-          echo "Secrets OK. Target: ${{ secrets.HETZNER_IP }}"
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      - name: Deploy via SSH
+      - name: Set up SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.HETZNER_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.HETZNER_IP }} >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Ensure project directory exists on server
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            root@${{ secrets.HETZNER_IP }} \
+            "mkdir -p /root/offerberries-marketing-agent"
+
+      - name: Sync code to Hetzner (rsync)
+        run: |
+          rsync -avz --delete \
+            --exclude='.git' \
+            --exclude='node_modules' \
+            --exclude='__pycache__' \
+            --exclude='*.pyc' \
+            --exclude='.env' \
+            --exclude='*.sock' \
+            -e "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no" \
+            ./ root@${{ secrets.HETZNER_IP }}:/root/offerberries-marketing-agent/
+
+      - name: Build and restart containers
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.HETZNER_IP }}
@@ -35,52 +51,21 @@ jobs:
           script_stop: true
           script: |
             set -e
+            cd /root/offerberries-marketing-agent
 
-            # ── Find project root (works regardless of clone path) ──────────
-            find_project() {
-              for candidate in /root /root/offerberries-marketing-agent /opt/offerberries-marketing-agent /home/deploy/offerberries-marketing-agent; do
-                if [ -f "$candidate/docker-compose.yml" ]; then
-                  echo "$candidate"
-                  return 0
-                fi
-              done
-              # fallback: search up to 3 levels under /root
-              found=$(find /root -maxdepth 3 -name "docker-compose.yml" 2>/dev/null | head -1)
-              if [ -n "$found" ]; then
-                dirname "$found"
-                return 0
-              fi
-              echo ""
-              return 1
-            }
+            echo ">>> Code version:"
+            ls -la dashboard/next.config.js agent/mcp_server/main.py
 
-            PROJECT_DIR=$(find_project)
-            if [ -z "$PROJECT_DIR" ]; then
-              echo "ERROR: could not find docker-compose.yml. Is the repo cloned on the server?"
-              echo "Run: git clone https://github.com/IhsanKhann/OfferBerries-Marketing-Agent.git /root/offerberries-marketing-agent"
-              exit 1
-            fi
-
-            echo ">>> Project dir: $PROJECT_DIR"
-            cd "$PROJECT_DIR"
-
-            echo ">>> Current git remote:"
-            git remote -v || true
-
-            echo ">>> Pulling latest code from main..."
-            git fetch origin
-            git reset --hard origin/main
-
-            echo ">>> Rebuilding services..."
+            echo ">>> Rebuilding containers..."
             docker compose build --no-cache mcp-server crew-runner dashboard renderer
 
             echo ">>> Restarting services..."
             docker compose up -d --remove-orphans
 
-            echo ">>> Waiting 60s for containers..."
+            echo ">>> Waiting 60s for health checks..."
             sleep 60
 
-            echo ">>> Service status:"
+            echo ">>> Container status:"
             docker compose ps
 
             echo ">>> MCP health:"
@@ -90,4 +75,4 @@ jobs:
             curl -sf http://localhost:3002/api/health && echo "" || true
 
             echo ""
-            echo "Deploy complete at $(date -u) from dir $PROJECT_DIR"
+            echo "=== Deploy complete at $(date -u) ==="
