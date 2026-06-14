@@ -4,11 +4,12 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard, BarChart2, Layout, Settings, CreditCard,
-  Users, Monitor, Activity, ChevronLeft, ChevronRight, LogOut,
+  Users, Monitor, Activity, ChevronLeft, ChevronRight, LogOut, PlayCircle,
 } from 'lucide-react';
 
 const NAV_MAIN = [
   { href: '/queue',     label: 'Queue',     icon: LayoutDashboard },
+  { href: '/runs',      label: 'Runs',      icon: PlayCircle },
   { href: '/analytics', label: 'Analytics', icon: BarChart2 },
   { href: '/templates', label: 'Templates', icon: Layout },
   { href: '/usage',     label: 'Usage',     icon: Activity },

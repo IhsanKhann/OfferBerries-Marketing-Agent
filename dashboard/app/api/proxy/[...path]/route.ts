@@ -22,6 +22,9 @@ function getTargetUrl(path: string[]): string {
   if (joined.startsWith('analytics/') || joined === 'analytics') {
     return `${CREW_URL}/${joined}`;
   }
+  if (joined.startsWith('runs/') || joined === 'runs') {
+    return `${CREW_URL}/${joined}`;
+  }
   if (joined === 'render' || joined.startsWith('render/')) {
     return `${RENDERER_URL}/${joined}`;
   }
