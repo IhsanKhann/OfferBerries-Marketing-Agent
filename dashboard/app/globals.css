@@ -446,6 +446,7 @@ img,video { max-width: 100%; display: block; }
   white-space: nowrap;
   letter-spacing: 0.01em;
 }
+.badge-primary { background: var(--accent);     color: white;               border-color: var(--accent); }
 .badge-success { background: var(--success-bg); color: var(--success-text); border-color: var(--success-border); }
 .badge-warning { background: var(--warning-bg); color: var(--warning-text); border-color: var(--warning-border); }
 .badge-danger  { background: var(--danger-bg);  color: var(--danger-text);  border-color: var(--danger-border); }
