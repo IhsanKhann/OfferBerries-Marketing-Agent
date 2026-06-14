@@ -1,5 +1,6 @@
 import hashlib
 import hmac
+import json
 import logging
 import os
 import re
@@ -17,6 +18,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel
 
 from auth import AuthError, TenantContext, resolve_api_key
+from services.perplexity_client import PerplexityError, get_perplexity_client
 
 # ── Startup validation ─────────────────────────────────────────────────────
 REQUIRED_ENV = [
@@ -272,46 +274,35 @@ async def _dispatch_tool(name: str, args: dict, tenant: TenantContext):
 
 # ── Tool implementations ───────────────────────────────────────────────────
 
-async def tool_research_trends(topic: str, platform: str = "all") -> dict:
-    perplexity_key = os.getenv("PERPLEXITY_API_KEY", "")
-    if not perplexity_key:
-        # Return mock data if key not configured
-        return ResearchBrief(
-            topic=topic,
-            trending_angles=[f"How {topic} saves Pakistani SMBs 3+ hours/week", f"Common {topic} mistakes SMBs make"],
-            pain_points=["Manual processes waste time", "Compliance errors cost money"],
-            suggested_hooks=[f"Why 94% of Karachi businesses still struggle with {topic}"],
-            platform_notes={"linkedin": "Educational angle works best", "twitter": "Short punchy stats"},
-            generated_at=datetime.now(timezone.utc).isoformat(),
-        ).model_dump()
+async def tool_research_trends(topic: str, platform: str = "all", model: str = "sonar") -> dict:
+    """Research trending angles via Perplexity.
 
-    prompt = (
-        f"Trending {topic} for {platform} social media Pakistan SMB 2026. "
-        f"What pain points, hooks, and angles are working right now?"
-    )
-    async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.post(
-            "https://api.perplexity.ai/chat/completions",
-            headers={"Authorization": f"Bearer {perplexity_key}"},
-            json={
-                "model": "sonar",
-                "messages": [{"role": "user", "content": prompt}],
-            },
+    Raises HTTPException with a typed error body on any failure — never
+    returns mock/fallback data in production.
+    """
+    client = get_perplexity_client()
+    try:
+        result = await client.research(topic=topic, platform=platform, model=model)
+    except PerplexityError as exc:
+        logger.warning("Perplexity error [%s]: %s", exc.error_type, exc.message)
+        raise HTTPException(
+            status_code=503,
+            detail=exc.to_dict(),
         )
-        resp.raise_for_status()
-        content = resp.json()["choices"][0]["message"]["content"]
 
-    # Parse response into structured brief
-    angles = [line.strip("- ").strip() for line in content.split("\n") if line.strip().startswith("-")][:5]
-    if not angles:
-        angles = [f"How {topic} transforms Pakistani SMB operations"]
-
+    # Adapt ResearchResult → ResearchBrief shape expected by downstream nodes
+    trends = result.trends
+    trend_titles = [t["title"] for t in trends]
     return ResearchBrief(
         topic=topic,
-        trending_angles=angles[:5],
-        pain_points=angles[5:8] if len(angles) > 5 else ["Manual processes", "Compliance burden"],
-        suggested_hooks=[angles[0]] if angles else [f"Stop wasting time on {topic}"],
-        platform_notes={"linkedin": "Educational", "twitter": "Stats-driven"},
+        trending_angles=trend_titles[:5],
+        pain_points=trend_titles[5:8] if len(trend_titles) > 5 else [],
+        suggested_hooks=[trend_titles[0]] if trend_titles else [],
+        platform_notes={
+            "citations": json.dumps(result.citations),
+            "model_used": result.model_used,
+            "raw_trends": json.dumps(trends),
+        },
         generated_at=datetime.now(timezone.utc).isoformat(),
     ).model_dump()
 
@@ -391,28 +382,57 @@ async def tool_generate_content(
     }
 
     if not openrouter_key:
-        # Return mock content if key not configured
-        mock_copy = f"Pakistani SMBs are losing hours every week to manual {brief.topic}. OfferBerries changes that. Our HR module automates payroll, leave tracking, and compliance — starting at PKR 1,999/month. What's your biggest payroll headache right now?"
-        return PlatformContent(
-            platform=platform,
-            copy=mock_copy[:char_limit],
-            hashtags=["#OfferBerries", "#PakistanSMB", "#HRSoftware"],
-            cta="Book a free demo today",
-            estimated_reading_time=1,
-            word_count=len(mock_copy.split()),
-        ).model_dump()
+        # No key — return empty rather than fake data so callers know generation failed
+        logger.warning("OPENROUTER_API_KEY not set — content generation unavailable")
+        raise HTTPException(status_code=503, detail="Content generation API key not configured")
 
     actual_model = "anthropic/claude-sonnet-4-6" if model == "premium" else model
 
+    topic_str = brief.topic if isinstance(brief, ResearchBrief) else brief.get("topic", "")
+    angles = brief.trending_angles if isinstance(brief, ResearchBrief) else brief.get("trending_angles", [])
+    pain_points = brief.pain_points if isinstance(brief, ResearchBrief) else brief.get("pain_points", [])
+    hooks = brief.suggested_hooks if isinstance(brief, ResearchBrief) else brief.get("suggested_hooks", [])
+
+    hashtag_rules = {
+        "linkedin": "3–5 hashtags: mix 2 broad professional + 2–3 niche topic-specific. No more than 5 total.",
+        "twitter": "2–4 hashtags only. Short and trending.",
+        "instagram": "7–10 hashtags: mix broad discovery + niche topic + location-relevant.",
+        "youtube": "3–5 hashtags for the description.",
+        "email": "No hashtags.",
+    }.get(platform, "3–5 topic-relevant hashtags.")
+
+    cta_rules = (
+        "Generate the most appropriate CTA for this content type:\n"
+        "- Educational/how-to content → 'Learn more', 'Read the guide', or an engagement question\n"
+        "- Pain-point content → 'See how we solve this', 'Fix this today'\n"
+        "- Product announcement → 'Read the full story', 'See what's new'\n"
+        "- Explicit product pitch → 'Book a free demo', 'Start your free trial'\n"
+        "Do NOT default to a demo CTA unless the content is explicitly pitching a product."
+    )
+
     user_prompt = f"""Platform: {platform}
 Platform instructions: {platform_instructions.get(platform, '')}
-Topic: {brief.topic if isinstance(brief, ResearchBrief) else brief.get('topic','')}
-Trending angles: {brief.trending_angles if isinstance(brief, ResearchBrief) else brief.get('trending_angles',[])}
-Pain points: {brief.pain_points if isinstance(brief, ResearchBrief) else brief.get('pain_points',[])}
-Suggested hooks: {brief.suggested_hooks if isinstance(brief, ResearchBrief) else brief.get('suggested_hooks',[])}
+Topic: {topic_str}
+Trending angles: {angles}
+Pain points: {pain_points}
+Suggested hooks: {hooks}
 Product: {product}
 
-Write the social media post copy. Return only the post copy, no explanations."""
+Hashtag rules: {hashtag_rules}
+Hashtag content requirements:
+- Specific to the topic — not generic brand tags
+- Pakistan SMB context where naturally relevant, not forced
+- Mix broad (reach) and niche (relevance) tags
+
+CTA rules:
+{cta_rules}
+
+Return your response as valid JSON with exactly this structure (no markdown, no extra keys):
+{{
+    "copy": "the full social media post copy here (no hashtags inline — keep them separate)",
+    "hashtags": ["#TopicHashtag1", "#TopicHashtag2"],
+    "cta": "the call to action text"
+}}"""
 
     async with httpx.AsyncClient(timeout=60) as client:
         resp = await client.post(
@@ -420,7 +440,7 @@ Write the social media post copy. Return only the post copy, no explanations."""
             headers={"Authorization": f"Bearer {openrouter_key}"},
             json={
                 "model": actual_model,
-                "max_tokens": 1000,
+                "max_tokens": 1200,
                 "messages": [
                     {"role": "system", "content": brand_voice},
                     {"role": "user", "content": user_prompt},
@@ -428,18 +448,42 @@ Write the social media post copy. Return only the post copy, no explanations."""
             },
         )
         resp.raise_for_status()
-        copy = resp.json()["choices"][0]["message"]["content"].strip()
+        raw = resp.json()["choices"][0]["message"]["content"].strip()
 
+    copy, hashtags, cta = _parse_content_response(raw, topic_str, platform)
     copy = copy[:char_limit]
     words = copy.split()
     return PlatformContent(
         platform=platform,
         copy=copy,
-        hashtags=["#OfferBerries", "#PakistanSMB"],
-        cta="Book a free demo",
+        hashtags=hashtags,
+        cta=cta,
         estimated_reading_time=max(1, len(words) // 200),
         word_count=len(words),
     ).model_dump()
+
+
+def _parse_content_response(raw: str, topic: str, platform: str) -> tuple[str, list[str], str]:
+    """Parse LLM JSON response into (copy, hashtags, cta).
+
+    Falls back to regex extraction if JSON parsing fails, so the pipeline
+    never hard-stops on a non-JSON response.
+    """
+    # Strip markdown code fences if present
+    cleaned = re.sub(r"```(?:json)?\s*", "", raw).strip().rstrip("```").strip()
+
+    try:
+        parsed = json.loads(cleaned)
+        copy = str(parsed.get("copy", raw))
+        hashtags = [str(h) for h in parsed.get("hashtags", []) if str(h).startswith("#")]
+        cta = str(parsed.get("cta", ""))
+        return copy, hashtags, cta
+    except (json.JSONDecodeError, TypeError):
+        logger.warning("Content response was not valid JSON — falling back to regex extraction")
+        hashtags = re.findall(r"#\w+", raw)
+        # Remove hashtags from copy body
+        copy = re.sub(r"#\w+", "", raw).strip()
+        return copy, hashtags, ""
 
 
 def _renderer_public_url(filename: str, renderer_url: str) -> str:

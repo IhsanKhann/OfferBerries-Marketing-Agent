@@ -48,13 +48,7 @@ async def research_node(state: AgentState) -> AgentState:
         state["brief"] = brief
     except Exception as e:
         state["errors"].append(f"research_trends error: {e}")
-        state["brief"] = {
-            "topic": state["topic"],
-            "trending_angles": [f"How {state['topic']} helps Pakistani SMBs"],
-            "pain_points": ["Manual processes", "Compliance burden"],
-            "suggested_hooks": [f"Stop wasting time on {state['topic']}"],
-            "platform_notes": {},
-        }
+        logger.error(f"[{state['run_id']}] Research failed — cannot proceed without real data: {e}")
 
     # Scrape competitors for top platforms
     if len(state["errors"]) <= 2:

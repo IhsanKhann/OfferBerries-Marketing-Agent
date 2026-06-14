@@ -2,6 +2,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { Send, Linkedin, Twitter, Instagram, Youtube, Mail, CheckCircle, XCircle } from 'lucide-react';
 import { notify } from '../../../lib/toast';
+import AgentErrorBanner, { type AgentError } from '../../../components/AgentErrorBanner';
 
 type Post = {
   postiz_id: string;
@@ -65,6 +66,7 @@ export default function QueuePage() {
     { role: 'assistant', content: 'Hi! I\'m your research assistant. Tell me what topic you\'d like to create content about and I\'ll research trends, competitors, and top-performing posts.' },
   ]);
   const [activePlatforms, setActivePlatforms] = useState<string[]>(['LinkedIn', 'Twitter', 'Instagram']);
+  const [agentError, setAgentError] = useState<AgentError | null>(null);
   const chatRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { fetchPosts(); }, [filter]);
@@ -139,14 +141,23 @@ export default function QueuePage() {
 
     if (res.ok) {
       const data = await res.json();
+      setAgentError(null);
       setRunId(data.run_id);
       setRunStatus('started');
       setMessages(m => [...m, { role: 'assistant', content: `🚀 Agent pipeline started (run ${data.run_id.slice(0, 8)}…). Researching "${userMsg}" — check the Workflow panel for live progress.` }]);
       notify.info('Agent started', `Researching: ${userMsg}`);
     } else {
       setRunning(false);
-      setMessages(m => [...m, { role: 'assistant', content: '❌ Failed to start agent. Please try again.' }]);
-      notify.error('Failed to start', 'Check your connection and try again');
+      let parsed: { detail?: AgentError | string } | null = null;
+      try { parsed = await res.json(); } catch {}
+      const detail = parsed?.detail;
+      if (detail && typeof detail === 'object' && 'error_type' in detail) {
+        setAgentError(detail as AgentError);
+        setMessages(m => [...m, { role: 'assistant', content: `Research failed: ${(detail as AgentError).message}` }]);
+      } else {
+        setMessages(m => [...m, { role: 'assistant', content: '❌ Failed to start agent. Please try again.' }]);
+        notify.error('Failed to start', 'Check your connection and try again');
+      }
     }
   }
 
@@ -182,6 +193,16 @@ export default function QueuePage() {
       <div className="content-area" style={{ display: 'flex', gap: 16, flex: 1, minHeight: 0, overflow: 'hidden' }}>
         {/* Left panel */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 16, minWidth: 0, overflow: 'hidden' }}>
+          {/* Agent error banner */}
+          {agentError && (
+            <AgentErrorBanner
+              error={agentError}
+              onDismiss={() => setAgentError(null)}
+              onRetry={() => { setAgentError(null); runAgent(); }}
+              onResume={() => { setAgentError(null); runAgent(); }}
+            />
+          )}
+
           {/* Research chat */}
           <div className="card" style={{ display: 'flex', flexDirection: 'column', height: 340, padding: 0, overflow: 'hidden' }}>
             <div className="flex-between" style={{ padding: '16px 20px 12px', borderBottom: '1px solid var(--border-default)' }}>
