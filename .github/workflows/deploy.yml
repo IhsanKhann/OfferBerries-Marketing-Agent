@@ -94,8 +94,17 @@ jobs:
 
             [ -n "$FAILS" ] && echo "BUILD FAILED:$FAILS" && exit 1
 
-            echo "=== Stopping old containers (avoid port conflicts) ==="
+            echo "=== Stopping compose project ==="
             docker compose down --remove-orphans 2>&1 || true
+
+            echo "=== Killing any container still holding our ports ==="
+            for PORT in 443 9080 3000 3001 3002 5678 7456 8000 8001; do
+              HOLDER=$(docker ps -q --filter "publish=${PORT}" 2>/dev/null)
+              if [ -n "$HOLDER" ]; then
+                echo "  Port ${PORT} still held by $(docker inspect --format '{{.Name}}' $HOLDER) — stopping"
+                docker stop $HOLDER 2>/dev/null || true
+              fi
+            done
 
             echo "=== Starting fresh ==="
             docker compose up -d 2>&1
