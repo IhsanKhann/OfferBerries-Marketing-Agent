@@ -133,6 +133,6 @@ jobs:
         run: |
           echo "Waiting 15s for Caddy to route traffic..."
           sleep 15
-          curl -sf --max-time 15 https://agent.${{ secrets.HETZNER_DOMAIN }}/api/health \
+          curl -sf --max-time 15 https://agent.offerberriesvo.com/api/health \
             && echo "Dashboard is live" \
-            || (echo "FAIL: https://agent.${{ secrets.HETZNER_DOMAIN }}/api/health did not return 200" && exit 1)
+            || (echo "FAIL: https://agent.offerberriesvo.com/api/health did not return 200" && exit 1)
