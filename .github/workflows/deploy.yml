@@ -56,8 +56,14 @@ jobs:
             echo ">>> Code version:"
             ls -la dashboard/next.config.js agent/mcp_server/main.py
 
-            echo ">>> Rebuilding containers..."
-            docker compose build --no-cache mcp-server crew-runner dashboard renderer
+            echo ">>> Building mcp-server..."
+            docker compose build --no-cache mcp-server
+            echo ">>> Building crew-runner..."
+            docker compose build --no-cache crew-runner
+            echo ">>> Building dashboard..."
+            docker compose build --no-cache dashboard
+            echo ">>> Building renderer..."
+            docker compose build --no-cache renderer
 
             echo ">>> Restarting services..."
             docker compose up -d --remove-orphans
