@@ -258,7 +258,7 @@ async def _dispatch_tool(name: str, args: dict, tenant: TenantContext):
         return await tool_scrape_competitor(**args)
     if name == "generate_content":
         brief = ResearchBrief(**args["brief"]) if isinstance(args.get("brief"), dict) else args.get("brief")
-        return await tool_generate_content(brief=brief, platform=args.get("platform", "linkedin"), product=args.get("product", "full_erp"), model=args.get("model", "google/gemini-2.5-flash"))
+        return await tool_generate_content(brief=brief, platform=args.get("platform", "linkedin"), product=args.get("product", "full_erp"), model=args.get("model", "google/gemini-2.5-flash"), tenant_id=tenant.tenant_id)
     if name == "generate_visual":
         content = PlatformContent(**args["content"]) if isinstance(args.get("content"), dict) else args.get("content")
         return await tool_generate_visual(content=content, template_id=args.get("template_id", "linkedin-single"), source=args.get("source", "template"))
@@ -364,17 +364,22 @@ async def tool_generate_content(
     platform: str,
     product: str = "full_erp",
     model: str = "google/gemini-2.5-flash",
+    tenant_id: str = "",
 ) -> dict:
     openrouter_key = os.getenv("OPENROUTER_API_KEY", "")
 
-    # Read brand voice
-    brand_voice_path = "/app/config/brand_voice.md"
+    # Load tenant-specific brand voice from MongoDB, fall back to file
     brand_voice = ""
-    try:
-        with open(brand_voice_path) as f:
-            brand_voice = f.read()
-    except FileNotFoundError:
-        brand_voice = "Write honest, direct content for Pakistani SMBs. No corporate buzzwords."
+    if tenant_id:
+        doc = await db["configs"].find_one({"tenant_id": tenant_id, "key": "brand_voice"}, {"_id": 0})
+        if doc:
+            brand_voice = doc.get("value", "")
+    if not brand_voice:
+        try:
+            with open("/app/config/brand_voice.md") as f:
+                brand_voice = f.read()
+        except FileNotFoundError:
+            brand_voice = "Write honest, direct content for Pakistani SMBs. No corporate buzzwords."
 
     char_limit = PLATFORM_CHAR_LIMITS.get(platform, 1300)
     platform_instructions = {
@@ -437,6 +442,14 @@ Write the social media post copy. Return only the post copy, no explanations."""
     ).model_dump()
 
 
+def _renderer_public_url(filename: str, renderer_url: str) -> str:
+    """Return a browser-accessible URL for a rendered PNG."""
+    domain = os.getenv("DOMAIN", "")
+    if domain and domain != "localhost":
+        return f"https://agent.{domain}/render-output/{filename}"
+    return f"{renderer_url}/output/{filename}"
+
+
 async def tool_generate_visual(
     content: PlatformContent,
     template_id: str,
@@ -461,7 +474,7 @@ async def tool_generate_visual(
             filename = resp.headers.get("x-output-filename", f"{uuid.uuid4()}.png")
         return VisualAsset(
             path=f"/app/output/{filename}",
-            url=f"{renderer_url}/output/{filename}",
+            url=_renderer_public_url(filename, renderer_url),
             format="png",
             width=width,
             height=height,
@@ -497,7 +510,7 @@ async def tool_generate_visual(
                 filename = render_resp.headers.get("x-output-filename", f"{uuid.uuid4()}.png")
                 return VisualAsset(
                     path=f"/app/output/{filename}",
-                    url=f"{renderer_url}/output/{filename}",
+                    url=_renderer_public_url(filename, renderer_url),
                     format="png",
                     width=width,
                     height=height,
@@ -528,7 +541,7 @@ async def tool_generate_visual(
 
         return VisualAsset(
             path=f"/app/output/{filename}",
-            url=f"{renderer_url}/output/{filename}",
+            url=_renderer_public_url(filename, renderer_url),
             format="png",
             width=width,
             height=height,
@@ -637,7 +650,15 @@ async def tool_update_strategy(tenant_id: str, changes: dict) -> dict:
     if isinstance(result, list) and result:
         result = result[0]
 
-    return StrategyDoc(**{k: v for k, v in result.items() if k in StrategyDoc.model_fields}).model_dump()
+    strategy = StrategyDoc(**{k: v for k, v in result.items() if k in StrategyDoc.model_fields}).model_dump()
+
+    # Mirror to MongoDB for fast reads via GET /config/strategy
+    await db["configs"].update_one(
+        {"tenant_id": tenant_id, "key": "strategy"},
+        {"$set": {"value": strategy, "updated_at": datetime.now(timezone.utc)}},
+        upsert=True,
+    )
+    return strategy
 
 # ── REST queue endpoints ───────────────────────────────────────────────────
 
@@ -703,6 +724,60 @@ async def rest_get_analytics(
 ):
     await get_tenant(x_api_key, authorization)
     return await tool_get_analytics(platform=platform, days=days)
+
+
+# ── Config endpoints ──────────────────────────────────────────────────────
+
+class BrandVoiceRequest(BaseModel):
+    content: str
+
+@app.get("/config/brand-voice")
+async def get_brand_voice(
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    tenant = await get_tenant(x_api_key, authorization)
+    doc = await db["configs"].find_one(
+        {"tenant_id": tenant.tenant_id, "key": "brand_voice"}, {"_id": 0}
+    )
+    if doc:
+        return {"content": doc.get("value", ""), "updated_at": str(doc.get("updated_at", ""))}
+    try:
+        with open("/app/config/brand_voice.md") as f:
+            content = f.read()
+    except FileNotFoundError:
+        content = "Write honest, direct content for Pakistani SMBs. No corporate buzzwords."
+    return {"content": content, "updated_at": ""}
+
+
+@app.put("/config/brand-voice")
+async def put_brand_voice(
+    req: BrandVoiceRequest,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    tenant = await get_tenant(x_api_key, authorization)
+    await db["configs"].update_one(
+        {"tenant_id": tenant.tenant_id, "key": "brand_voice"},
+        {"$set": {"value": req.content, "updated_at": datetime.now(timezone.utc)}},
+        upsert=True,
+    )
+    return {"saved": True}
+
+
+@app.get("/config/strategy")
+async def get_strategy(
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    tenant = await get_tenant(x_api_key, authorization)
+    doc = await db["configs"].find_one(
+        {"tenant_id": tenant.tenant_id, "key": "strategy"}, {"_id": 0}
+    )
+    if doc:
+        data = doc.get("value", {})
+        return StrategyDoc(**{k: v for k, v in data.items() if k in StrategyDoc.model_fields}).model_dump()
+    return StrategyDoc(tenant_id=tenant.tenant_id).model_dump()
 
 
 # ── Admin endpoints ────────────────────────────────────────────────────────

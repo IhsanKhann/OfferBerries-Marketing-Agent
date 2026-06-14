@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 const MCP_URL = process.env.MCP_SERVER_URL || 'http://mcp-server:8000';
 const CREW_URL = process.env.CREW_RUNNER_URL || 'http://crew-runner:8001';
+const RENDERER_URL = process.env.RENDERER_URL || 'http://renderer:3001';
 
 function getApiKey(request: NextRequest): string | null {
   const cookie = request.cookies.get('ofb_session');
@@ -15,15 +16,15 @@ function getApiKey(request: NextRequest): string | null {
 
 function getTargetUrl(path: string[]): string {
   const joined = path.join('/');
-  // Route agent/* to crew-runner
   if (joined.startsWith('agent/') || joined === 'agent') {
     return `${CREW_URL}/${joined}`;
   }
-  // Route analytics/* to crew-runner
   if (joined.startsWith('analytics/') || joined === 'analytics') {
     return `${CREW_URL}/${joined}`;
   }
-  // Everything else to MCP server
+  if (joined === 'render' || joined.startsWith('render/')) {
+    return `${RENDERER_URL}/${joined}`;
+  }
   return `${MCP_URL}/${joined}`;
 }
 
@@ -58,10 +59,19 @@ async function proxyRequest(request: NextRequest, path: string[]) {
     body,
   });
 
-  const data = await upstream.text();
-  return new NextResponse(data, {
+  const contentType = upstream.headers.get('Content-Type') || 'application/json';
+
+  // Pass binary responses through without UTF-8 corruption
+  let responseBody: BodyInit;
+  if (contentType.startsWith('image/') || contentType === 'application/octet-stream') {
+    responseBody = await upstream.arrayBuffer();
+  } else {
+    responseBody = await upstream.text();
+  }
+
+  return new NextResponse(responseBody, {
     status: upstream.status,
-    headers: { 'Content-Type': upstream.headers.get('Content-Type') || 'application/json' },
+    headers: { 'Content-Type': contentType },
   });
 }
 

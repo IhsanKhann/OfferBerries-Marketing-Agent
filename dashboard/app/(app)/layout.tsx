@@ -1,6 +1,7 @@
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
+import { SignOutButton } from './sign-out-button';
 
 const NAV = [
   { href: '/queue', label: 'Queue' },
@@ -56,22 +57,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           >
             Open Design Studio
           </a>
-          <form action="/api/auth" method="post">
-            <button
-              formMethod="DELETE"
-              style={{
-                background: 'none',
-                border: 'none',
-                color: 'rgba(255,255,255,0.4)',
-                fontSize: 12,
-                cursor: 'pointer',
-                padding: 0,
-                fontFamily: 'inherit',
-              }}
-            >
-              Sign Out
-            </button>
-          </form>
+          <SignOutButton />
         </div>
       </aside>
       {/* Main content */}
