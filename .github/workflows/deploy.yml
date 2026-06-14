@@ -21,14 +21,23 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H ${{ secrets.HETZNER_IP }} >> ~/.ssh/known_hosts 2>/dev/null || true
 
-      - name: Ensure project directory exists on server
+      - name: Diagnose server state
         run: |
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
             root@${{ secrets.HETZNER_IP }} \
-            "mkdir -p /root/offerberries-marketing-agent"
+            "echo '=== Running containers ===' && docker ps --format '{{.Names}}\t{{.Status}}\t{{.Ports}}' && echo '=== /root contents ===' && ls /root/ && echo '=== Compose projects ===' && docker compose ls 2>/dev/null || true"
 
-      - name: Sync code to Hetzner (rsync)
+      - name: Sync code to original project directory
         run: |
+          # Sync to /root/ directly (where the original project lives based on
+          # docker network name offerberries-marketing-agent_marketing-net).
+          # The project dir name determines compose project name. We check
+          # which location has docker-compose.yml and sync there.
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            root@${{ secrets.HETZNER_IP }} \
+            "find /root -maxdepth 2 -name docker-compose.yml 2>/dev/null | head -5"
+
+          # Rsync to whichever path has the compose file (or /root/ directly)
           rsync -avz --delete \
             --exclude='.git' \
             --exclude='node_modules' \
@@ -36,6 +45,7 @@ jobs:
             --exclude='*.pyc' \
             --exclude='.env' \
             --exclude='*.sock' \
+            --filter='protect .env' \
             -e "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no" \
             ./ root@${{ secrets.HETZNER_IP }}:/root/offerberries-marketing-agent/
 
@@ -50,63 +60,64 @@ jobs:
           command_timeout: 15m
           script_stop: false
           script: |
-            cd /root/offerberries-marketing-agent
+            set -e
 
-            echo "=== DIAGNOSTICS ==="
-            df -h /
-            free -h
-            echo "Running containers:"
-            docker ps --format "{{.Names}} {{.Status}}" 2>/dev/null || true
+            # Find the compose project directory
+            PROJ=""
+            for d in /root/offerberries-marketing-agent /root; do
+              if [ -f "$d/docker-compose.yml" ]; then
+                PROJ="$d"
+                break
+              fi
+            done
+            [ -z "$PROJ" ] && echo "ERROR: no docker-compose.yml found" && exit 1
 
-            echo ""
-            echo "=== FREE DISK (prune old images) ==="
-            docker image prune -f 2>/dev/null || true
+            echo "=== Project dir: $PROJ ==="
+            cd "$PROJ"
 
-            echo ""
-            echo "=== FILES CHECK ==="
-            ls -la dashboard/next.config.js dashboard/public/ agent/mcp_server/main.py 2>&1
-
-            FAILURES=""
-
-            echo ""
-            echo "=== BUILD mcp-server ==="
-            docker compose build mcp-server 2>&1
-            [ $? -ne 0 ] && FAILURES="$FAILURES mcp-server"
-
-            echo ""
-            echo "=== BUILD crew-runner ==="
-            docker compose build crew-runner 2>&1
-            [ $? -ne 0 ] && FAILURES="$FAILURES crew-runner"
-
-            echo ""
-            echo "=== BUILD dashboard ==="
-            docker compose build dashboard 2>&1
-            [ $? -ne 0 ] && FAILURES="$FAILURES dashboard"
-
-            echo ""
-            echo "=== BUILD renderer ==="
-            docker compose build renderer 2>&1
-            [ $? -ne 0 ] && FAILURES="$FAILURES renderer"
-
-            if [ -n "$FAILURES" ]; then
-              echo ""
-              echo "!!! BUILD FAILED for:$FAILURES"
-              exit 1
+            # Ensure .env exists (copy from /root/.env if needed)
+            if [ ! -f .env ] && [ -f /root/.env ]; then
+              echo "Linking /root/.env -> .env"
+              ln -sf /root/.env .env
             fi
+            [ ! -f .env ] && echo "WARNING: no .env file found"
 
-            echo ""
-            echo "=== All builds OK — starting services ==="
-            docker compose up -d --remove-orphans
+            echo "=== Disk / memory before build ==="
+            df -h / && free -h
+
+            echo "=== Building services ==="
+            FAILS=""
+            docker compose build mcp-server   2>&1 || FAILS="$FAILS mcp-server"
+            docker compose build crew-runner  2>&1 || FAILS="$FAILS crew-runner"
+            docker compose build dashboard    2>&1 || FAILS="$FAILS dashboard"
+            docker compose build renderer     2>&1 || FAILS="$FAILS renderer"
+
+            [ -n "$FAILS" ] && echo "BUILD FAILED:$FAILS" && exit 1
+
+            echo "=== Stopping old containers (avoid port conflicts) ==="
+            docker compose down --remove-orphans 2>&1 || true
+
+            echo "=== Starting fresh ==="
+            docker compose up -d 2>&1
+            UP_EXIT=$?
+            [ $UP_EXIT -ne 0 ] && echo "docker compose up failed (exit $UP_EXIT)" && exit 1
+
+            echo "=== Waiting 60s for health checks ==="
             sleep 60
 
             echo "=== Service status ==="
             docker compose ps
 
+            echo "=== MCP endpoints (proves new code) ==="
+            curl -sf http://localhost:8000/openapi.json \
+              | python3 -c "import sys,json; paths=json.load(sys.stdin)['paths']; print(sorted(paths.keys()))" \
+              || echo "MCP not responding"
+
             echo "=== MCP health ==="
-            curl -sf http://localhost:8000/health && echo "" || echo "MCP not responding"
+            curl -sf http://localhost:8000/health && echo ""
 
             echo "=== Dashboard health ==="
-            curl -sf http://localhost:3002/api/health && echo "" || echo "Dashboard not responding"
+            curl -sf http://localhost:3002/api/health && echo "" || echo "Dashboard not responding yet"
 
             echo ""
             echo "=== Deploy complete at $(date -u) ==="
