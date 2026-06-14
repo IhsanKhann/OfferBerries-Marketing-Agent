@@ -545,13 +545,14 @@ async def tool_queue_post(
     image_path: str,
     scheduled_at: str,
     tenant_id: str,
+    preview_url: str = "",
 ) -> dict:
     postiz_secret = os.getenv("POSTIZ_SECRET", "")
     postiz_url = os.getenv("POSTIZ_URL", "http://postiz:3000")
 
     mock_id = str(uuid.uuid4())
     if not postiz_secret:
-        queued = QueuedPost(postiz_id=mock_id, platform=platform, scheduled_at=scheduled_at)
+        queued = QueuedPost(postiz_id=mock_id, platform=platform, scheduled_at=scheduled_at, preview_url=preview_url)
     else:
         async with httpx.AsyncClient(timeout=30) as client:
             resp = await client.post(
@@ -561,13 +562,15 @@ async def tool_queue_post(
             )
             resp.raise_for_status()
             postiz_id = resp.json().get("id", mock_id)
-        queued = QueuedPost(postiz_id=postiz_id, platform=platform, scheduled_at=scheduled_at)
+        queued = QueuedPost(postiz_id=postiz_id, platform=platform, scheduled_at=scheduled_at, preview_url=preview_url)
 
     await db["posts"].insert_one({
         "tenant_id": tenant_id,
         "platform": platform,
+        "caption": caption,
         "caption_hash": hashlib.sha256(caption.encode()).hexdigest(),
         "postiz_id": queued.postiz_id,
+        "preview_url": preview_url,
         "scheduled_at": scheduled_at,
         "status": "queued",
         "created_at": datetime.now(timezone.utc),
@@ -635,6 +638,72 @@ async def tool_update_strategy(tenant_id: str, changes: dict) -> dict:
         result = result[0]
 
     return StrategyDoc(**{k: v for k, v in result.items() if k in StrategyDoc.model_fields}).model_dump()
+
+# ── REST queue endpoints ───────────────────────────────────────────────────
+
+@app.get("/queue")
+async def rest_get_queue(
+    platform: Optional[str] = None,
+    status: Optional[str] = None,
+    limit: int = 50,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    tenant = await get_tenant(x_api_key, authorization)
+    query: dict = {"tenant_id": tenant.tenant_id}
+    if platform and platform != "all":
+        query["platform"] = platform
+    if status:
+        query["status"] = status
+    cursor = db["posts"].find(query, {"_id": 0}).sort("created_at", -1).limit(limit)
+    posts = await cursor.to_list(length=limit)
+    for p in posts:
+        if "created_at" in p:
+            p["created_at"] = p["created_at"].isoformat() if hasattr(p["created_at"], "isoformat") else str(p["created_at"])
+    return posts
+
+
+@app.post("/queue/{post_id}/approve")
+async def rest_approve_post(
+    post_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    tenant = await get_tenant(x_api_key, authorization)
+    result = await db["posts"].update_one(
+        {"postiz_id": post_id, "tenant_id": tenant.tenant_id},
+        {"$set": {"status": "approved", "approved_at": datetime.now(timezone.utc)}},
+    )
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Post not found")
+    return {"approved": True, "post_id": post_id}
+
+
+@app.delete("/queue/{post_id}")
+async def rest_delete_post(
+    post_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    tenant = await get_tenant(x_api_key, authorization)
+    result = await db["posts"].delete_one(
+        {"postiz_id": post_id, "tenant_id": tenant.tenant_id}
+    )
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Post not found")
+    return {"deleted": True, "post_id": post_id}
+
+
+@app.get("/analytics")
+async def rest_get_analytics(
+    platform: str = "all",
+    days: int = 7,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    await get_tenant(x_api_key, authorization)
+    return await tool_get_analytics(platform=platform, days=days)
+
 
 # ── Admin endpoints ────────────────────────────────────────────────────────
 

@@ -223,6 +223,7 @@ async def queue_node(state: AgentState) -> AgentState:
                 "platform": platform,
                 "caption": content.get("copy", ""),
                 "image_path": visual.get("path", ""),
+                "preview_url": visual.get("url", ""),
                 "scheduled_at": scheduled_at,
             })
             if result:

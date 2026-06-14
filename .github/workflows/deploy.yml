@@ -1,0 +1,46 @@
+name: Deploy to Hetzner
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    name: SSH deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Deploy to Hetzner via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.HETZNER_IP }}
+          username: root
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          script_stop: true
+          script: |
+            set -e
+            cd /root
+
+            echo ">>> Pulling latest code..."
+            git pull origin main
+
+            echo ">>> Rebuilding changed services..."
+            docker compose build --no-cache mcp-server crew-runner dashboard renderer
+
+            echo ">>> Restarting services..."
+            docker compose up -d --remove-orphans
+
+            echo ">>> Waiting for health checks (60s)..."
+            sleep 60
+
+            echo ">>> Service status:"
+            docker compose ps
+
+            echo ">>> Verifying MCP server health..."
+            curl -sf http://localhost:8000/health | python3 -c "import sys,json; d=json.load(sys.stdin); print('MCP:', d['status'])"
+
+            echo ">>> Verifying dashboard health..."
+            curl -sf http://localhost:3002/api/health | python3 -c "import sys,json; d=json.load(sys.stdin); print('Dashboard:', d.get('status','ok'))" || true
+
+            echo ">>> Deploy complete."

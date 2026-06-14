@@ -195,6 +195,8 @@ services:
       N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
       WEBHOOK_URL: https://n8n.${DOMAIN}
       GENERIC_TIMEZONE: Asia/Karachi
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      N8N_VERSION_NOTIFICATIONS_ENABLED: "false"
     volumes:
       - n8n-data:/home/node/.n8n
     ports:
