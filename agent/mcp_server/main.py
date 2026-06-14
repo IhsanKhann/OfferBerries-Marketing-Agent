@@ -258,7 +258,7 @@ async def _dispatch_tool(name: str, args: dict, tenant: TenantContext):
         return await tool_scrape_competitor(**args)
     if name == "generate_content":
         brief = ResearchBrief(**args["brief"]) if isinstance(args.get("brief"), dict) else args.get("brief")
-        return await tool_generate_content(brief=brief, platform=args.get("platform", "linkedin"), product=args.get("product", "full_erp"), model=args.get("model", "google/gemini-flash-1.5"))
+        return await tool_generate_content(brief=brief, platform=args.get("platform", "linkedin"), product=args.get("product", "full_erp"), model=args.get("model", "google/gemini-2.5-flash"))
     if name == "generate_visual":
         content = PlatformContent(**args["content"]) if isinstance(args.get("content"), dict) else args.get("content")
         return await tool_generate_visual(content=content, template_id=args.get("template_id", "linkedin-single"), source=args.get("source", "template"))
@@ -294,7 +294,7 @@ async def tool_research_trends(topic: str, platform: str = "all") -> dict:
             "https://api.perplexity.ai/chat/completions",
             headers={"Authorization": f"Bearer {perplexity_key}"},
             json={
-                "model": "sonar-small-online",
+                "model": "sonar",
                 "messages": [{"role": "user", "content": prompt}],
             },
         )
@@ -363,7 +363,7 @@ async def tool_generate_content(
     brief: ResearchBrief,
     platform: str,
     product: str = "full_erp",
-    model: str = "google/gemini-flash-1.5",
+    model: str = "google/gemini-2.5-flash",
 ) -> dict:
     openrouter_key = os.getenv("OPENROUTER_API_KEY", "")
 
@@ -415,6 +415,7 @@ Write the social media post copy. Return only the post copy, no explanations."""
             headers={"Authorization": f"Bearer {openrouter_key}"},
             json={
                 "model": actual_model,
+                "max_tokens": 1000,
                 "messages": [
                     {"role": "system", "content": brand_voice},
                     {"role": "user", "content": user_prompt},

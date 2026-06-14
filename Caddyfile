@@ -1,15 +1,22 @@
 {
     http_port 9080
     https_port 443
+    acme_dns cloudflare {env.CF_API_TOKEN}
 }
 
 agent.{$DOMAIN} {
     route /postiz/* {
         uri strip_prefix /postiz
-        reverse_proxy postiz:3000
+        reverse_proxy postiz:4200
     }
     route /design-link {
         redir https://design.{$DOMAIN} 302
+    }
+    route /render-output/* {
+        uri strip_prefix /render-output
+        reverse_proxy renderer:3001 {
+            rewrite /output{uri}
+        }
     }
     reverse_proxy dashboard:3002
 }

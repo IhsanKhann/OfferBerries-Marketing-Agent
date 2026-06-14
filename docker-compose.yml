@@ -1,6 +1,9 @@
 networks:
   marketing-net:
     driver: bridge
+  oma-net:
+    external: true
+    name: offerberries-marketing-agent_marketing-net
 
 volumes:
   redis-data:
@@ -62,16 +65,21 @@ services:
       REDIS_URL: ${REDIS_URL}
       MAIN_URL: https://agent.${DOMAIN}/postiz
       JWT_SECRET: ${POSTIZ_SECRET}
+      NEXT_PUBLIC_BACKEND_URL: https://agent.${DOMAIN}/postiz
+      TEMPORAL_ADDRESS: offerberries-marketing-agent-temporal-1:7233
       STORAGE_PROVIDER: local
       UPLOAD_DIRECTORY: /app/uploads
     volumes:
       - postiz-uploads:/app/uploads
+    ports:
+      - "3000:3000"
     expose:
-      - "3000"
+      - "5000"
     networks:
       - marketing-net
+      - oma-net
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health 2>/dev/null | grep -q ok || exit 1"]
+      test: ["CMD-SHELL", "node -e 'const h=require(\"http\");h.get({host:\"127.0.0.1\",port:3000,path:\"/\"},r=>{let d=\"\";r.on(\"data\",c=>d+=c);r.on(\"end\",()=>process.exit(d.includes(\"App is running\")?0:1))}).on(\"error\",()=>process.exit(1))'"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -83,17 +91,20 @@ services:
     restart: unless-stopped
     environment:
       OD_API_TOKEN: ${OD_API_TOKEN}
+      CF_API_TOKEN: ${CF_API_TOKEN}
       OD_BIND_HOST: 0.0.0.0
       OPEN_DESIGN_ALLOWED_ORIGINS: ${OPEN_DESIGN_ALLOWED_ORIGINS}
     volumes:
       - od-projects:/app/projects
       - ./agent/od-skills:/app/skills/custom
+    ports:
+      - "7456:7456"
     expose:
       - "7456"
     networks:
       - marketing-net
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:7456/api/health 2>/dev/null | grep -q ok || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:7456/api/health 2>/dev/null | grep -q ok || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -106,6 +117,8 @@ services:
     volumes:
       - ./templates:/app/templates:ro
       - renderer-output:/app/output
+    ports:
+      - "3001:3001"
     expose:
       - "3001"
     networks:
@@ -127,6 +140,8 @@ services:
         condition: service_healthy
       renderer:
         condition: service_healthy
+    ports:
+      - "8000:8000"
     expose:
       - "8000"
     networks:
@@ -182,6 +197,8 @@ services:
       GENERIC_TIMEZONE: Asia/Karachi
     volumes:
       - n8n-data:/home/node/.n8n
+    ports:
+      - "5678:5678"
     expose:
       - "5678"
     networks:
@@ -198,6 +215,8 @@ services:
     build: ./dashboard
     restart: unless-stopped
     env_file: .env
+    environment:
+      HOSTNAME: "0.0.0.0"
     depends_on:
       mcp-server:
         condition: service_healthy
@@ -214,7 +233,7 @@ services:
 
   # ── Caddy (reverse proxy + TLS) ───────────────────────────────────────────
   caddy:
-    image: caddy:2-alpine
+    image: slothcroissant/caddy-cloudflaredns:latest
     restart: unless-stopped
     ports:
       - "443:443"
@@ -233,6 +252,7 @@ services:
     environment:
       DOMAIN: ${DOMAIN}
       OD_API_TOKEN: ${OD_API_TOKEN}
+      CF_API_TOKEN: ${CF_API_TOKEN}
 
   # ── Prometheus ────────────────────────────────────────────────────────────
   prometheus:
@@ -258,6 +278,7 @@ services:
       - prometheus
     environment:
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      GF_SERVER_HTTP_PORT: "3003"
       GF_USERS_ALLOW_SIGN_UP: "false"
     volumes:
       - grafana-data:/var/lib/grafana

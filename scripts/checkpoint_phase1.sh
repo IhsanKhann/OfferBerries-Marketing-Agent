@@ -66,19 +66,23 @@ curl -sf -X POST http://localhost:3001/render \
   -H "Content-Type: application/json" \
   -d '{"template_id":"announcement-card","content_data":{"title":"Test","emoji":"🚀","body":"Test body","product_name":"OfferBerries","cta":"Learn more"},"width":1080,"height":1080}' \
   --output /tmp/test-render-p1.png --max-time 30
-if file /tmp/test-render-p1.png 2>/dev/null | grep -q "PNG image"; then
+if python3 -c "
+import sys
+d = open('/tmp/test-render-p1.png','rb').read(8)
+sys.exit(0 if d == bytes([0x89,0x50,0x4E,0x47,0x0D,0x0A,0x1A,0x0A]) else 1)
+" 2>/dev/null; then
   pass "Renderer returns valid PNG"
 else
   fail "Renderer did not return a valid PNG"
 fi
 
-# CHECK 6 — Postiz health
-echo "CHECK 6: Postiz health endpoint"
-POSTIZ_RESP=$(curl -sf http://localhost:3000/api/health --max-time 10 2>/dev/null || echo "{}")
-if echo "$POSTIZ_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); exit(0 if d.get('status')=='ok' else 1)" 2>/dev/null; then
-  pass "Postiz health ok"
+# CHECK 6 — Postiz health (backend on port 3000)
+echo "CHECK 6: Postiz backend health"
+POSTIZ_RESP=$(curl -sf http://localhost:3000/ --max-time 10 2>/dev/null || echo "")
+if echo "$POSTIZ_RESP" | grep -q "App is running"; then
+  pass "Postiz backend is running"
 else
-  fail "Postiz health check failed (response: ${POSTIZ_RESP})"
+  fail "Postiz backend not responding (response: ${POSTIZ_RESP:0:100})"
 fi
 
 # CHECK 7 — n8n health
