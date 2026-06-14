@@ -12,6 +12,12 @@ import ResearchBriefReview, { type ResearchBrief } from '../../../../components/
 type StageStatus = 'pending' | 'running' | 'paused' | 'approved' | 'failed' | 'skipped';
 type OverallStatus = 'pending' | 'running' | 'paused_for_review' | 'completed' | 'failed' | 'cancelled';
 
+interface CostBreakdown {
+  run_id: string;
+  total_usd: number;
+  breakdown: { _id: string; total_cost: number; calls: number }[];
+}
+
 interface StageState {
   status: StageStatus;
   output: Record<string, unknown> | null;
@@ -76,6 +82,7 @@ export default function RunDetailPage() {
   const [loading, setLoading] = useState(true);
   const [approvingStage, setApprovingStage] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState(false);
+  const [costData, setCostData] = useState<CostBreakdown | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
 
   const fetchRun = useCallback(async () => {
@@ -94,7 +101,12 @@ export default function RunDetailPage() {
 
   useEffect(() => {
     fetchRun();
-  }, [fetchRun]);
+    // Fetch cost breakdown — endpoint may not be available yet, so we swallow errors
+    fetch(`/api/proxy/runs/${id}/cost`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d) setCostData(d); })
+      .catch(() => {});
+  }, [fetchRun, id]);
 
   // SSE stream for live updates
   useEffect(() => {
@@ -326,6 +338,49 @@ export default function RunDetailPage() {
           color: '#10B981', fontWeight: 500, fontSize: 14,
         }}>
           Run completed successfully
+        </div>
+      )}
+
+      {/* Cost summary card */}
+      {costData && (
+        <div className="card" style={{ marginTop: 16 }}>
+          <div className="card-title" style={{ marginBottom: 12 }}>Cost Summary</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {costData.breakdown.map(item => (
+              <div
+                key={item._id}
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  padding: '6px 10px',
+                  borderRadius: 6,
+                  background: 'var(--surface-raised)',
+                  fontSize: 13,
+                }}
+              >
+                <span style={{ color: 'var(--text-primary)', textTransform: 'capitalize' }}>
+                  {item._id.replace(/_/g, ' ')}
+                </span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--text-muted)' }}>
+                  <span style={{ fontSize: 11 }}>{item.calls} call{item.calls !== 1 ? 's' : ''}</span>
+                  <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>${item.total_cost.toFixed(4)}</span>
+                </span>
+              </div>
+            ))}
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '8px 10px',
+              borderRadius: 6,
+              background: 'var(--surface-raised)',
+              borderTop: '1px solid var(--border-default)',
+              marginTop: 2,
+              fontSize: 13,
+            }}>
+              <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Total</span>
+              <span style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: 14 }}>
+                ${costData.total_usd.toFixed(4)}
+              </span>
+            </div>
+          </div>
         </div>
       )}
     </div>

@@ -17,6 +17,12 @@ type ChatMessage = { role: 'user' | 'assistant'; content: string };
 
 const PLATFORMS = ['LinkedIn', 'Twitter', 'Instagram', 'YouTube', 'Email'];
 
+const RESEARCH_MODELS = [
+  { id: 'sonar',               label: 'Sonar',         badge: '~$0.001' },
+  { id: 'sonar-pro',           label: 'Sonar Pro',     badge: '~$0.004' },
+  { id: 'sonar-deep-research', label: 'Deep Research', badge: '~$0.056' },
+];
+
 const PLATFORM_ICON: Record<string, React.ElementType> = {
   linkedin: Linkedin, twitter: Twitter, instagram: Instagram,
   youtube: Youtube, email: Mail,
@@ -67,6 +73,7 @@ export default function QueuePage() {
   ]);
   const [activePlatforms, setActivePlatforms] = useState<string[]>(['LinkedIn', 'Twitter', 'Instagram']);
   const [agentError, setAgentError] = useState<AgentError | null>(null);
+  const [researchModel, setResearchModel] = useState('sonar');
   const chatRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { fetchPosts(); }, [filter]);
@@ -136,6 +143,7 @@ export default function QueuePage() {
         topic: userMsg,
         platform_filter: activePlatforms.map(p => p.toLowerCase()),
         dry_run: false,
+        research_model: researchModel,
       }),
     });
 
@@ -228,6 +236,29 @@ export default function QueuePage() {
                   </div>
                 </div>
               )}
+            </div>
+            {/* Research model picker */}
+            <div style={{ display: 'flex', gap: 6, padding: '8px 16px 0', flexWrap: 'wrap' }}>
+              {RESEARCH_MODELS.map(m => (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => setResearchModel(m.id)}
+                  className={`badge ${researchModel === m.id ? 'badge-primary' : 'badge-muted'}`}
+                  style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, padding: '4px 10px', fontSize: 12 }}
+                >
+                  {m.label}
+                  <span style={{
+                    fontSize: 10,
+                    padding: '1px 5px',
+                    borderRadius: 4,
+                    background: researchModel === m.id ? 'rgba(255,255,255,0.2)' : 'var(--surface-raised)',
+                    color: researchModel === m.id ? 'inherit' : 'var(--text-muted)',
+                  }}>
+                    {m.badge}
+                  </span>
+                </button>
+              ))}
             </div>
             <div className="composer">
               <textarea

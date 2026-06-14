@@ -26,13 +26,15 @@ class AgentState(TypedDict):
     dry_run: bool
 
 
-async def _call_tool(tool_name: str, arguments: dict, api_key: str = None) -> dict:
+async def _call_tool(tool_name: str, arguments: dict, api_key: str = None, run_id: str = "") -> dict:
     key = api_key or OWNER_KEY
+    # Inject run_id so the MCP server can attribute cost to the right run
+    args_with_meta = {**arguments, "__run_id": run_id} if run_id else arguments
     async with httpx.AsyncClient(timeout=120) as client:
         resp = await client.post(
             f"{MCP_URL}/mcp",
             headers={"X-API-Key": key, "Content-Type": "application/json"},
-            json={"method": "tools/call", "params": {"name": tool_name, "arguments": arguments}},
+            json={"method": "tools/call", "params": {"name": tool_name, "arguments": args_with_meta}},
         )
         if resp.status_code == 200:
             return resp.json().get("result", {})
@@ -44,7 +46,7 @@ async def research_node(state: AgentState) -> AgentState:
     logger.info(f"[{state['run_id']}] Research node starting for topic: {state['topic']}")
 
     try:
-        brief = await _call_tool("research_trends", {"topic": state["topic"], "platform": "all"})
+        brief = await _call_tool("research_trends", {"topic": state["topic"], "platform": "all"}, run_id=state["run_id"])
         state["brief"] = brief
     except Exception as e:
         state["errors"].append(f"research_trends error: {e}")
@@ -64,7 +66,7 @@ async def research_node(state: AgentState) -> AgentState:
         for handle in watchlist[:2]:
             for platform in state["platform_filter"][:2]:
                 try:
-                    posts = await _call_tool("scrape_competitor", {"platform": platform, "handle": handle, "limit": 10})
+                    posts = await _call_tool("scrape_competitor", {"platform": platform, "handle": handle, "limit": 10}, run_id=state["run_id"])
                     if isinstance(posts, list):
                         competitor_posts.extend(posts)
                 except Exception as e:
@@ -89,8 +91,9 @@ async def content_node(state: AgentState) -> AgentState:
     platform_content = {}
 
     for platform in state["platform_filter"]:
+        run_id = state["run_id"]
         try:
-            content = await _call_tool("generate_content", {"brief": brief, "platform": platform})
+            content = await _call_tool("generate_content", {"brief": brief, "platform": platform}, run_id=run_id)
             if content:
                 platform_content[platform] = content
 
@@ -104,6 +107,7 @@ async def content_node(state: AgentState) -> AgentState:
                         slide_content = await _call_tool(
                             "generate_content",
                             {"brief": slide_brief, "platform": "linkedin"},
+                            run_id=run_id,
                         )
                         if slide_content:
                             slide_content["slide_number"] = slide_num
@@ -135,6 +139,7 @@ async def visual_node(state: AgentState) -> AgentState:
     }
 
     visual_assets = {}
+    brief = state.get("brief") or {}
     for platform, content in state["platform_content"].items():
         if platform == "linkedin_carousel":
             continue
@@ -142,23 +147,38 @@ async def visual_node(state: AgentState) -> AgentState:
             continue
         template_id = template_map.get(platform, "announcement-card")
         source = "open_design" if platform == "instagram" else "template"
+        run_id = state["run_id"]
+
+        # D1: Generate visual brief to give the renderer richer context
+        visual_brief = None
+        try:
+            visual_brief = await _call_tool("generate_visual_brief", {
+                "brief": brief,
+                "content": content,
+                "platform": platform,
+                "brand_context": {},
+            }, run_id=run_id)
+        except Exception as e:
+            logger.warning(f"[{run_id}] Visual brief skipped for {platform}: {e}")
+
         try:
             asset = await _call_tool("generate_visual", {
                 "content": content,
                 "template_id": template_id,
                 "source": source,
-            })
+                "visual_brief": visual_brief,
+            }, run_id=run_id)
             if asset:
                 visual_assets[platform] = asset
         except Exception as e:
             state["errors"].append(f"generate_visual/{platform}: {e}")
-            # Fallback to template source
+            # Fallback to template source without visual brief
             try:
                 asset = await _call_tool("generate_visual", {
                     "content": content,
                     "template_id": template_id,
                     "source": "template",
-                })
+                }, run_id=run_id)
                 if asset:
                     visual_assets[platform] = asset
             except Exception:
@@ -205,6 +225,7 @@ async def queue_node(state: AgentState) -> AgentState:
         return (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat()
 
     queued = []
+    run_id = state["run_id"]
     for platform, content in state["platform_content"].items():
         if platform == "linkedin_carousel":
             continue
@@ -219,7 +240,7 @@ async def queue_node(state: AgentState) -> AgentState:
                 "image_path": visual.get("path", ""),
                 "preview_url": visual.get("url", ""),
                 "scheduled_at": scheduled_at,
-            })
+            }, run_id=run_id)
             if result:
                 queued.append(result)
         except Exception as e:

@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react';
 import { Copy, Check, RefreshCw, Trash2 } from 'lucide-react';
 import { notify } from '../../../lib/toast';
+import VoiceProfileEditor, { type VoiceProfile } from '../../../components/VoiceProfileEditor';
 
 const TIER_LIMITS: Record<string, Record<string, number>> = {
   owner:   { research_trends:9999, scrape_competitor:9999, generate_content:9999, generate_visual:9999, queue_post:9999, get_analytics:9999, update_strategy:9999 },
@@ -31,6 +32,18 @@ export default function SettingsPage() {
   const [loadingModels, setLoadingModels]   = useState(true);
   const [copiedKey, setCopiedKey]  = useState(false);
 
+  const DEFAULT_VOICE_PROFILE: VoiceProfile = {
+    tone: 'professional',
+    personality: '',
+    writing_style: '',
+    avoid_phrases: [],
+    platform_overrides: {},
+    example_ctas: [],
+  };
+  const [voiceProfile, setVoiceProfile] = useState<VoiceProfile>(DEFAULT_VOICE_PROFILE);
+  const [loadingVoiceProfile, setLoadingVoiceProfile] = useState(true);
+  const [savingVoiceProfile, setSavingVoiceProfile] = useState(false);
+
   // Danger zone confirm states
   const [clearArmed, setClearArmed]   = useState(false);
   const [resetArmed, setResetArmed]   = useState(false);
@@ -38,6 +51,7 @@ export default function SettingsPage() {
   useEffect(() => {
     fetch('/api/proxy/account').then(r => r.ok ? r.json() : null).then(d => { if (d) setAccount(d); }).finally(() => setLoadingAccount(false));
     fetch('/api/proxy/config/brand-voice').then(r => r.ok ? r.json() : null).then(d => { if (d?.content) setBrandVoice(d.content); }).finally(() => setLoadingBv(false));
+    fetch('/api/proxy/config/voice-profile').then(r => r.ok ? r.json() : null).then(d => { if (d) setVoiceProfile(d); }).finally(() => setLoadingVoiceProfile(false));
     fetch('/api/proxy/config/strategy').then(r => r.ok ? r.json() : null).then(d => { if (d) { if (d.topic_focus) setTopicFocus(d.topic_focus); if (d.format_preference) setFormatPref(d.format_preference); } });
     fetch('/api/proxy/models/available').then(r => r.ok ? r.json() : []).then(setModels).finally(() => setLoadingModels(false));
     fetch('/api/proxy/config/content-model').then(r => r.ok ? r.json() : null).then(d => { if (d?.model_id) setSelectedModel(d.model_id); });
@@ -50,6 +64,20 @@ export default function SettingsPage() {
     });
     if (res.ok) notify.success('Saved', 'Brand voice updated');
     else notify.error('Save failed', 'Check connection and try again');
+  }
+
+  async function saveVoiceProfile(p: VoiceProfile) {
+    setSavingVoiceProfile(true);
+    try {
+      const res = await fetch('/api/proxy/config/voice-profile', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(p),
+      });
+      if (res.ok) { setVoiceProfile(p); notify.success('Saved', 'Brand voice profile updated'); }
+      else notify.error('Save failed', 'Check connection and try again');
+    } finally {
+      setSavingVoiceProfile(false);
+    }
   }
 
   async function saveStrategy() {
@@ -238,7 +266,27 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          {/* 4. Content Strategy */}
+          {/* 4. Brand Voice Profile */}
+          <div className="settings-section">
+            <div className="settings-section-title">Brand Voice Profile</div>
+            <div className="settings-card">
+              <div className="card-title" style={{ marginBottom: 4 }}>Structured Voice Settings</div>
+              <div className="card-sub" style={{ marginBottom: 16 }}>Fine-grained voice controls used when generating content</div>
+              {loadingVoiceProfile ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {[1, 2, 3].map(i => <div key={i} className="skeleton-pulse" style={{ height: 40 }} />)}
+                </div>
+              ) : (
+                <VoiceProfileEditor
+                  profile={voiceProfile}
+                  onSave={saveVoiceProfile}
+                  saving={savingVoiceProfile}
+                />
+              )}
+            </div>
+          </div>
+
+          {/* 5. Content Strategy */}
           <div className="settings-section">
             <div className="settings-section-title">Content Strategy</div>
             <div className="settings-card">
@@ -262,7 +310,7 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          {/* 5. Social Accounts */}
+          {/* 6. Social Accounts */}
           <div className="settings-section">
             <div className="settings-section-title">Social Accounts</div>
             <div className="settings-card">
@@ -272,7 +320,7 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          {/* 6. Danger Zone */}
+          {/* 7. Danger Zone */}
           <div className="settings-section">
             <div className="settings-section-title danger">Danger Zone</div>
             <div className="settings-card danger-card">

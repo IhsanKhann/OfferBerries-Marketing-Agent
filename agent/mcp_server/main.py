@@ -111,13 +111,28 @@ async def check_rate_limit(tenant: TenantContext, tool_name: str):
         raise HTTPException(status_code=429, detail=f"Daily limit of {limit} reached for {tool_name}")
 
 
-async def log_tool_call(tenant_id: str, tool_name: str, status: str, cost_estimate: float = 0.0):
+async def log_tool_call(
+    tenant_id: str,
+    tool_name: str,
+    status: str,
+    run_id: str = "",
+    model: str = "",
+    provider: str = "",
+    prompt_tokens: int = 0,
+    completion_tokens: int = 0,
+    cost_usd: float = 0.0,
+):
     try:
         await db["tool_calls"].insert_one({
             "tenant_id": tenant_id,
+            "run_id": run_id,
             "tool_name": tool_name,
             "status": status,
-            "cost_estimate": cost_estimate,
+            "provider": provider,
+            "model": model,
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "cost_usd": cost_usd,
             "recorded_at": datetime.now(timezone.utc),
         })
     except Exception:
@@ -187,6 +202,63 @@ class StrategyDoc(BaseModel):
     avoid_topics: list[str] = []
     updated_at: str = ""
 
+# ── Pricing tables (used for cost tracking) ───────────────────────────────
+
+OPENROUTER_PRICING: dict[str, tuple[float, float]] = {
+    # (prompt_per_1M_usd, completion_per_1M_usd)
+    "google/gemini-2.5-flash":                  (0.075, 0.30),
+    "meta-llama/llama-3.1-8b-instruct:free":    (0.0,   0.0),
+    "mistralai/mistral-7b-instruct:free":        (0.0,   0.0),
+    "google/gemini-2.5-pro":                    (1.25,  10.00),
+    "anthropic/claude-haiku-4-5":               (0.80,  4.00),
+    "openai/gpt-4o-mini":                       (0.15,  0.60),
+    "anthropic/claude-sonnet-4-6":              (3.00,  15.00),
+    "openai/gpt-4o":                            (5.00,  15.00),
+    "google/gemini-2.5-pro-preview":            (3.50,  10.50),
+}
+
+PERPLEXITY_COSTS: dict[str, float] = {
+    "sonar":                0.0014,
+    "sonar-pro":            0.004,
+    "sonar-deep-research":  0.056,
+    "sonar-reasoning":      0.005,
+}
+
+
+def _compute_openrouter_cost(model_id: str, prompt_tokens: int, completion_tokens: int) -> float:
+    prompt_price, completion_price = OPENROUTER_PRICING.get(model_id, (0.0, 0.0))
+    return round(
+        (prompt_tokens * prompt_price + completion_tokens * completion_price) / 1_000_000, 8
+    )
+
+
+# ── Extended Pydantic models ───────────────────────────────────────────────
+
+class VoiceProfile(BaseModel):
+    tone: str = "professional"
+    personality: str = ""
+    writing_style: str = ""
+    avoid_phrases: list[str] = []
+    platform_overrides: dict[str, str] = {}
+    example_ctas: list[str] = []
+
+
+class VisualBrief(BaseModel):
+    headline: str = ""
+    subtext: str = ""
+    visual_mood: str = "professional, clean"
+    color_directive: str = ""
+    layout_hint: str = "announcement"
+
+
+class TemplateDoc(BaseModel):
+    template_id: str
+    name: str
+    platform: str
+    thumbnail_url: str = ""
+    is_default: bool = False
+
+
 # ── Platform dimension map ─────────────────────────────────────────────────
 PLATFORM_DIMS = {
     "linkedin": (1080, 1080),
@@ -224,46 +296,68 @@ async def mcp_endpoint(
     if method == "tools/list":
         return {
             "tools": [
-                {"name": "research_trends", "description": "Research trending topics on social media"},
-                {"name": "scrape_competitor", "description": "Scrape competitor posts via Apify"},
-                {"name": "generate_content", "description": "Generate platform-specific content copy"},
-                {"name": "generate_visual", "description": "Render a visual asset from a template"},
-                {"name": "queue_post", "description": "Queue a post in Postiz for scheduling"},
-                {"name": "get_analytics", "description": "Retrieve analytics from Postiz"},
-                {"name": "update_strategy", "description": "Update the weekly content strategy doc"},
+                {"name": "research_trends",      "description": "Research trending topics on social media"},
+                {"name": "scrape_competitor",    "description": "Scrape competitor posts via Apify"},
+                {"name": "generate_content",     "description": "Generate platform-specific content copy"},
+                {"name": "generate_visual_brief","description": "LLM-driven visual art direction brief"},
+                {"name": "generate_visual",      "description": "Render a visual asset from a template"},
+                {"name": "queue_post",           "description": "Queue a post in Postiz for scheduling"},
+                {"name": "get_analytics",        "description": "Retrieve analytics from Postiz"},
+                {"name": "update_strategy",      "description": "Update the weekly content strategy doc"},
             ]
         }
 
     if method == "tools/call":
         tool_name = params.get("name", "")
         args = params.get("arguments", {})
+        run_id = args.pop("__run_id", "")  # injected by graph.py, not a real tool arg
         await check_rate_limit(tenant, tool_name)
 
         try:
-            result = await _dispatch_tool(tool_name, args, tenant)
-            await log_tool_call(tenant.tenant_id, tool_name, "success")
+            result = await _dispatch_tool(tool_name, args, tenant, run_id=run_id)
             return {"result": result}
         except HTTPException:
             raise
         except Exception as exc:
-            await log_tool_call(tenant.tenant_id, tool_name, "error")
+            await log_tool_call(tenant.tenant_id, tool_name, "error", run_id=run_id)
             logger.error(f"Tool {tool_name} error: {exc}")
             raise HTTPException(status_code=500, detail=str(exc))
 
     raise HTTPException(status_code=400, detail=f"Unknown method: {method}")
 
 
-async def _dispatch_tool(name: str, args: dict, tenant: TenantContext):
+async def _dispatch_tool(name: str, args: dict, tenant: TenantContext, run_id: str = ""):
     if name == "research_trends":
-        return await tool_research_trends(**args)
+        return await tool_research_trends(run_id=run_id, tenant_id=tenant.tenant_id, **args)
     if name == "scrape_competitor":
         return await tool_scrape_competitor(**args)
     if name == "generate_content":
         brief = ResearchBrief(**args["brief"]) if isinstance(args.get("brief"), dict) else args.get("brief")
-        return await tool_generate_content(brief=brief, platform=args.get("platform", "linkedin"), product=args.get("product", "full_erp"), model=args.get("model", "google/gemini-2.5-flash"), tenant_id=tenant.tenant_id)
+        return await tool_generate_content(
+            brief=brief,
+            platform=args.get("platform", "linkedin"),
+            product=args.get("product", "full_erp"),
+            model=args.get("model", "google/gemini-2.5-flash"),
+            tenant_id=tenant.tenant_id,
+            run_id=run_id,
+        )
+    if name == "generate_visual_brief":
+        return await tool_generate_visual_brief(
+            brief=args.get("brief", {}),
+            content=args.get("content", {}),
+            platform=args.get("platform", "linkedin"),
+            brand_context=args.get("brand_context", {}),
+            run_id=run_id,
+            tenant_id=tenant.tenant_id,
+        )
     if name == "generate_visual":
         content = PlatformContent(**args["content"]) if isinstance(args.get("content"), dict) else args.get("content")
-        return await tool_generate_visual(content=content, template_id=args.get("template_id", "linkedin-single"), source=args.get("source", "template"))
+        return await tool_generate_visual(
+            content=content,
+            template_id=args.get("template_id", "linkedin-single"),
+            source=args.get("source", "template"),
+            visual_brief=args.get("visual_brief"),
+        )
     if name == "queue_post":
         return await tool_queue_post(tenant_id=tenant.tenant_id, **args)
     if name == "get_analytics":
@@ -274,7 +368,14 @@ async def _dispatch_tool(name: str, args: dict, tenant: TenantContext):
 
 # ── Tool implementations ───────────────────────────────────────────────────
 
-async def tool_research_trends(topic: str, platform: str = "all", model: str = "sonar") -> dict:
+async def tool_research_trends(
+    topic: str,
+    platform: str = "all",
+    model: str = "sonar",
+    recency_filter: str = "week",
+    run_id: str = "",
+    tenant_id: str = "",
+) -> dict:
     """Research trending angles via Perplexity.
 
     Raises HTTPException with a typed error body on any failure — never
@@ -285,12 +386,18 @@ async def tool_research_trends(topic: str, platform: str = "all", model: str = "
         result = await client.research(topic=topic, platform=platform, model=model)
     except PerplexityError as exc:
         logger.warning("Perplexity error [%s]: %s", exc.error_type, exc.message)
-        raise HTTPException(
-            status_code=503,
-            detail=exc.to_dict(),
+        await log_tool_call(
+            tenant_id=tenant_id, tool_name="research_trends", status="error",
+            run_id=run_id, provider="perplexity", model=model,
         )
+        raise HTTPException(status_code=503, detail=exc.to_dict())
 
-    # Adapt ResearchResult → ResearchBrief shape expected by downstream nodes
+    cost_usd = PERPLEXITY_COSTS.get(model, PERPLEXITY_COSTS["sonar"])
+    await log_tool_call(
+        tenant_id=tenant_id, tool_name="research_trends", status="success",
+        run_id=run_id, provider="perplexity", model=model, cost_usd=cost_usd,
+    )
+
     trends = result.trends
     trend_titles = [t["title"] for t in trends]
     return ResearchBrief(
@@ -302,6 +409,7 @@ async def tool_research_trends(topic: str, platform: str = "all", model: str = "
             "citations": json.dumps(result.citations),
             "model_used": result.model_used,
             "raw_trends": json.dumps(trends),
+            "recency_filter": recency_filter,
         },
         generated_at=datetime.now(timezone.utc).isoformat(),
     ).model_dump()
@@ -356,21 +464,42 @@ async def tool_generate_content(
     product: str = "full_erp",
     model: str = "google/gemini-2.5-flash",
     tenant_id: str = "",
+    run_id: str = "",
 ) -> dict:
     openrouter_key = os.getenv("OPENROUTER_API_KEY", "")
 
-    # Load tenant-specific brand voice from MongoDB, fall back to file
+    # Load VoiceProfile (structured) from MongoDB, fall back to plain brand_voice, then file
+    voice_profile: Optional[VoiceProfile] = None
     brand_voice = ""
     if tenant_id:
-        doc = await db["configs"].find_one({"tenant_id": tenant_id, "key": "brand_voice"}, {"_id": 0})
-        if doc:
-            brand_voice = doc.get("value", "")
-    if not brand_voice:
+        vp_doc = await db["configs"].find_one({"tenant_id": tenant_id, "key": "voice_profile"}, {"_id": 0})
+        if vp_doc and isinstance(vp_doc.get("value"), dict):
+            try:
+                voice_profile = VoiceProfile(**vp_doc["value"])
+            except Exception:
+                pass
+        if not voice_profile:
+            bv_doc = await db["configs"].find_one({"tenant_id": tenant_id, "key": "brand_voice"}, {"_id": 0})
+            if bv_doc:
+                brand_voice = bv_doc.get("value", "")
+    if not voice_profile and not brand_voice:
         try:
             with open("/app/config/brand_voice.md") as f:
                 brand_voice = f.read()
         except FileNotFoundError:
             brand_voice = "Write honest, direct content for Pakistani SMBs. No corporate buzzwords."
+
+    # Build system prompt from VoiceProfile or fall back to brand voice string
+    if voice_profile:
+        avoid = ", ".join(f'"{p}"' for p in voice_profile.avoid_phrases) if voice_profile.avoid_phrases else "none"
+        platform_extra = voice_profile.platform_overrides.get(platform, "")
+        brand_voice = (
+            f"Tone: {voice_profile.tone}.\n"
+            f"{voice_profile.personality}\n"
+            f"Writing style: {voice_profile.writing_style}\n"
+            f"Avoid phrases: {avoid}\n"
+            + (f"Extra for {platform}: {platform_extra}\n" if platform_extra else "")
+        ).strip()
 
     char_limit = PLATFORM_CHAR_LIMITS.get(platform, 1300)
     platform_instructions = {
@@ -448,7 +577,19 @@ Return your response as valid JSON with exactly this structure (no markdown, no 
             },
         )
         resp.raise_for_status()
-        raw = resp.json()["choices"][0]["message"]["content"].strip()
+        resp_body = resp.json()
+        raw = resp_body["choices"][0]["message"]["content"].strip()
+
+    # Capture real token usage and compute cost
+    usage = resp_body.get("usage", {})
+    prompt_tokens = usage.get("prompt_tokens", 0)
+    completion_tokens = usage.get("completion_tokens", 0)
+    cost_usd = _compute_openrouter_cost(actual_model, prompt_tokens, completion_tokens)
+    await log_tool_call(
+        tenant_id=tenant_id, tool_name="generate_content", status="success",
+        run_id=run_id, provider="openrouter", model=actual_model,
+        prompt_tokens=prompt_tokens, completion_tokens=completion_tokens, cost_usd=cost_usd,
+    )
 
     copy, hashtags, cta = _parse_content_response(raw, topic_str, platform)
     copy = copy[:char_limit]
@@ -486,6 +627,69 @@ def _parse_content_response(raw: str, topic: str, platform: str) -> tuple[str, l
         return copy, hashtags, ""
 
 
+async def tool_generate_visual_brief(
+    brief: dict,
+    content: dict,
+    platform: str,
+    brand_context: dict = {},
+    run_id: str = "",
+    tenant_id: str = "",
+) -> dict:
+    """Generate a structured visual art-direction brief via LLM."""
+    openrouter_key = os.getenv("OPENROUTER_API_KEY", "")
+    if not openrouter_key:
+        return VisualBrief().model_dump()
+
+    model = "google/gemini-2.5-flash"
+    copy_text = content.get("copy", "")[:400]
+    top_angle = (brief.get("trending_angles") or [""])[0]
+    brand_name = brand_context.get("name", "OfferBerries")
+    brand_color = brand_context.get("primary_color", "#4F46E5 indigo")
+
+    prompt = f"""You are a visual art director creating a brief for a {platform} social media post.
+
+Post copy (excerpt): {copy_text}
+Key research angle: {top_angle}
+Brand: {brand_name}
+Brand primary color: {brand_color}
+
+Return ONLY valid JSON — no markdown, no extra text:
+{{
+  "headline": "short punchy headline for visual (max 8 words)",
+  "subtext": "supporting line (max 12 words)",
+  "visual_mood": "2-3 adjectives, e.g. professional clean trustworthy",
+  "color_directive": "e.g. dominant indigo white text high contrast",
+  "layout_hint": "one of: stat-card | quote-card | announcement | illustration | data-visual"
+}}"""
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers={"Authorization": f"Bearer {openrouter_key}"},
+            json={"model": model, "max_tokens": 200, "messages": [{"role": "user", "content": prompt}]},
+        )
+        resp.raise_for_status()
+        resp_body = resp.json()
+        raw = resp_body["choices"][0]["message"]["content"].strip()
+
+    usage = resp_body.get("usage", {})
+    cost_usd = _compute_openrouter_cost(model, usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0))
+    await log_tool_call(
+        tenant_id=tenant_id, tool_name="generate_visual_brief", status="success",
+        run_id=run_id, provider="openrouter", model=model,
+        prompt_tokens=usage.get("prompt_tokens", 0),
+        completion_tokens=usage.get("completion_tokens", 0),
+        cost_usd=cost_usd,
+    )
+
+    cleaned = re.sub(r"```(?:json)?\s*", "", raw).strip().rstrip("```").strip()
+    try:
+        data = json.loads(cleaned)
+        return VisualBrief(**{k: v for k, v in data.items() if k in VisualBrief.model_fields}).model_dump()
+    except Exception:
+        return VisualBrief(headline=copy_text[:60]).model_dump()
+
+
 def _renderer_public_url(filename: str, renderer_url: str) -> str:
     """Return a browser-accessible URL for a rendered PNG."""
     domain = os.getenv("DOMAIN", "")
@@ -498,9 +702,13 @@ async def tool_generate_visual(
     content: PlatformContent,
     template_id: str,
     source: str = "template",
+    visual_brief: Optional[dict] = None,
 ) -> dict:
     platform = content.platform if isinstance(content, PlatformContent) else content.get("platform", "linkedin")
     copy = content.copy if isinstance(content, PlatformContent) else content.get("copy", "")
+
+    # Build enriched prompt from visual brief if available
+    vb = VisualBrief(**visual_brief) if visual_brief else None
     width, height = PLATFORM_DIMS.get(platform, (1080, 1080))
     renderer_url = os.getenv("RENDERER_URL", "http://renderer:3001")
     od_url = os.getenv("OD_URL", "http://open-design:7456")
@@ -527,11 +735,18 @@ async def tool_generate_visual(
         ).model_dump()
 
     if source == "open_design":
+        if vb and vb.headline:
+            od_prompt = (
+                f"{vb.layout_hint}: \"{vb.headline}\" — {vb.subtext}. "
+                f"{vb.color_directive}. {vb.visual_mood}."
+            )
+        else:
+            od_prompt = copy
         async with httpx.AsyncClient(timeout=90) as client:
             od_resp = await client.post(
                 f"{od_url}/api/generate",
                 headers={"Authorization": f"Bearer {od_token}"},
-                json={"prompt": copy, "skill": template_id, "design_system": "offerberries"},
+                json={"prompt": od_prompt, "skill": template_id, "design_system": "offerberries"},
             )
             od_resp.raise_for_status()
             od_data = od_resp.json()
@@ -567,11 +782,19 @@ async def tool_generate_visual(
     if source == "fal":
         fal_key = os.getenv("FAL_API_KEY", "")
         size_map = {"linkedin": "square_hd", "twitter": "landscape_16_9", "instagram": "square_hd", "youtube": "landscape_16_9"}
+        if vb and vb.headline:
+            flux_prompt = (
+                f"Professional {vb.layout_hint} card for {platform}. "
+                f'Text: "{vb.headline}". {vb.color_directive}. '
+                f"Style: {vb.visual_mood}. Clean modern corporate design. No stock photos."
+            )
+        else:
+            flux_prompt = f"Professional social media graphic: {copy[:200]}"
         async with httpx.AsyncClient(timeout=90) as client:
             resp = await client.post(
                 "https://fal.run/fal-ai/flux/dev",
                 headers={"Authorization": f"Key {fal_key}"},
-                json={"prompt": f"Professional social media graphic: {copy[:200]}", "image_size": size_map.get(platform, "square_hd")},
+                json={"prompt": flux_prompt, "image_size": size_map.get(platform, "square_hd")},
             )
             resp.raise_for_status()
             data = resp.json()
@@ -1222,3 +1445,138 @@ async def put_content_model(
         upsert=True,
     )
     return {"saved": True, "model_id": req.model_id}
+
+
+# ── C1: Research model config ──────────────────────────────────────────────
+
+class ResearchModelRequest(BaseModel):
+    model_id: str
+
+@app.get("/config/research-model")
+async def get_research_model(
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    tenant = await get_tenant(x_api_key, authorization)
+    doc = await db["configs"].find_one({"tenant_id": tenant.tenant_id, "key": "research_model"}, {"_id": 0})
+    return {"model_id": doc["value"] if doc else "sonar"}
+
+@app.put("/config/research-model")
+async def put_research_model(
+    req: ResearchModelRequest,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    if req.model_id not in PERPLEXITY_COSTS:
+        raise HTTPException(status_code=400, detail=f"Unknown research model: {req.model_id}")
+    tenant = await get_tenant(x_api_key, authorization)
+    await db["configs"].update_one(
+        {"tenant_id": tenant.tenant_id, "key": "research_model"},
+        {"$set": {"value": req.model_id, "updated_at": datetime.now(timezone.utc)}},
+        upsert=True,
+    )
+    return {"saved": True, "model_id": req.model_id}
+
+
+# ── C2: Voice profile config ───────────────────────────────────────────────
+
+@app.get("/config/voice-profile")
+async def get_voice_profile(
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    tenant = await get_tenant(x_api_key, authorization)
+    doc = await db["configs"].find_one({"tenant_id": tenant.tenant_id, "key": "voice_profile"}, {"_id": 0})
+    if doc and isinstance(doc.get("value"), dict):
+        try:
+            return VoiceProfile(**doc["value"]).model_dump()
+        except Exception:
+            pass
+    return VoiceProfile().model_dump()
+
+@app.put("/config/voice-profile")
+async def put_voice_profile(
+    req: VoiceProfile,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    tenant = await get_tenant(x_api_key, authorization)
+    await db["configs"].update_one(
+        {"tenant_id": tenant.tenant_id, "key": "voice_profile"},
+        {"$set": {"value": req.model_dump(), "updated_at": datetime.now(timezone.utc)}},
+        upsert=True,
+    )
+    return {"saved": True}
+
+
+# ── D2: Template library CRUD ──────────────────────────────────────────────
+
+DEFAULT_TEMPLATES = [
+    TemplateDoc(template_id="linkedin-single",    name="LinkedIn Single",    platform="linkedin",   is_default=True).model_dump(),
+    TemplateDoc(template_id="twitter-stat-card",  name="Twitter Stat Card",  platform="twitter",    is_default=True).model_dump(),
+    TemplateDoc(template_id="instagram-quote",    name="Instagram Quote",    platform="instagram",  is_default=True).model_dump(),
+    TemplateDoc(template_id="youtube-thumbnail",  name="YouTube Thumbnail",  platform="youtube",    is_default=True).model_dump(),
+    TemplateDoc(template_id="email-header",       name="Email Header",       platform="email",      is_default=True).model_dump(),
+    TemplateDoc(template_id="announcement-card",  name="Announcement Card",  platform="all",        is_default=True).model_dump(),
+]
+
+@app.get("/config/templates")
+async def get_templates(
+    platform: Optional[str] = None,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    tenant = await get_tenant(x_api_key, authorization)
+    query: dict = {"tenant_id": tenant.tenant_id}
+    if platform:
+        query["$or"] = [{"platform": platform}, {"platform": "all"}]
+    cursor = db["templates"].find(query, {"_id": 0}).sort("name", 1)
+    templates = await cursor.to_list(length=100)
+    if not templates:
+        templates = [t for t in DEFAULT_TEMPLATES if not platform or t["platform"] in (platform, "all")]
+    return templates
+
+@app.post("/config/templates", status_code=201)
+async def create_template(
+    req: TemplateDoc,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    tenant = await get_tenant(x_api_key, authorization)
+    doc = {**req.model_dump(), "tenant_id": tenant.tenant_id, "created_at": datetime.now(timezone.utc)}
+    await db["templates"].update_one(
+        {"tenant_id": tenant.tenant_id, "template_id": req.template_id},
+        {"$set": doc},
+        upsert=True,
+    )
+    return {"saved": True, "template_id": req.template_id}
+
+@app.put("/config/templates/{template_id}")
+async def update_template(
+    template_id: str,
+    req: TemplateDoc,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    tenant = await get_tenant(x_api_key, authorization)
+    result = await db["templates"].update_one(
+        {"tenant_id": tenant.tenant_id, "template_id": template_id},
+        {"$set": {**req.model_dump(), "updated_at": datetime.now(timezone.utc)}},
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Template not found")
+    return {"saved": True}
+
+@app.delete("/config/templates/{template_id}")
+async def delete_template(
+    template_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    tenant = await get_tenant(x_api_key, authorization)
+    result = await db["templates"].delete_one(
+        {"tenant_id": tenant.tenant_id, "template_id": template_id}
+    )
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Template not found")
+    return {"deleted": True}

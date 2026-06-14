@@ -423,6 +423,78 @@ async def stream_run_events(
     )
 
 
+# ── Cost endpoints ────────────────────────────────────────────────────────
+
+@app.get("/runs/{run_id}/cost")
+async def get_run_cost(
+    run_id: str,
+    x_api_key: Optional[str] = Header(None),
+):
+    """Aggregate tool_calls for a run to produce a cost breakdown."""
+    _require_owner(x_api_key)
+    if not db:
+        raise HTTPException(status_code=503, detail="Database not available")
+
+    pipeline = [
+        {"$match": {"run_id": run_id}},
+        {"$group": {
+            "_id": "$tool_name",
+            "total_cost": {"$sum": "$cost_usd"},
+            "calls": {"$sum": 1},
+            "prompt_tokens": {"$sum": "$prompt_tokens"},
+            "completion_tokens": {"$sum": "$completion_tokens"},
+        }},
+        {"$sort": {"total_cost": -1}},
+    ]
+    cursor = db["tool_calls"].aggregate(pipeline)
+    breakdown = await cursor.to_list(length=100)
+    total_usd = sum(item["total_cost"] for item in breakdown)
+    return {"run_id": run_id, "total_usd": round(total_usd, 6), "breakdown": breakdown}
+
+
+class EstimateRequest(BaseModel):
+    platforms: list[str] = ["linkedin", "twitter", "instagram"]
+    research_model: str = "sonar"
+    execution_mode: str = "automated"
+    include_visuals: bool = True
+
+
+@app.post("/runs/estimate")
+async def estimate_run_cost(
+    req: EstimateRequest,
+    x_api_key: Optional[str] = Header(None),
+):
+    """Return a pre-run cost estimate without starting an agent run."""
+    _require_owner(x_api_key)
+
+    PERPLEXITY_COSTS = {"sonar": 0.0014, "sonar-pro": 0.004, "sonar-deep-research": 0.056}
+    OPENROUTER_CONTENT_COST = 0.0003  # ~1k tokens at Gemini Flash rates per post
+
+    research_cost = PERPLEXITY_COSTS.get(req.research_model, 0.0014)
+    platform_count = len(req.platforms)
+    # 1 content call per platform + 4 carousel slides if linkedin present
+    carousel_extra = 4 if "linkedin" in req.platforms else 0
+    content_calls = platform_count + carousel_extra
+    content_cost = content_calls * OPENROUTER_CONTENT_COST
+    # Visual brief (D1): one LLM call per platform
+    visual_brief_cost = platform_count * 0.0001 if req.include_visuals else 0.0
+    visual_cost = 0.0  # OpenDesign and template-based visuals have no per-call API cost
+
+    breakdown = [
+        {"tool": "research_trends", "estimated_cost": round(research_cost, 6), "calls": 1},
+        {"tool": "generate_content", "estimated_cost": round(content_cost, 6), "calls": content_calls},
+        {"tool": "generate_visual_brief", "estimated_cost": round(visual_brief_cost, 6), "calls": platform_count},
+        {"tool": "generate_visual", "estimated_cost": visual_cost, "calls": platform_count},
+    ]
+    total_usd = sum(item["estimated_cost"] for item in breakdown)
+    return {
+        "research_model": req.research_model,
+        "platforms": req.platforms,
+        "estimated_total_usd": round(total_usd, 6),
+        "breakdown": breakdown,
+    }
+
+
 # ── Helper ─────────────────────────────────────────────────────────────────
 
 async def _fetch_run_doc(run_id: str, raise_404: bool = True) -> dict:
