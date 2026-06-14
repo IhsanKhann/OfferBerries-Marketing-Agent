@@ -8,15 +8,44 @@ jobs:
   deploy:
     name: SSH deploy
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
-      - name: Deploy to Hetzner via SSH
+      - name: Verify secrets are set
+        run: |
+          if [ -z "${{ secrets.HETZNER_IP }}" ]; then
+            echo "ERROR: HETZNER_IP secret is not set"
+            echo "Go to: https://github.com/IhsanKhann/OfferBerries-Marketing-Agent/settings/secrets/actions"
+            exit 1
+          fi
+          if [ -z "${{ secrets.HETZNER_SSH_KEY }}" ]; then
+            echo "ERROR: HETZNER_SSH_KEY secret is not set"
+            echo "Go to: https://github.com/IhsanKhann/OfferBerries-Marketing-Agent/settings/secrets/actions"
+            exit 1
+          fi
+          echo "Secrets present. Connecting to ${{ secrets.HETZNER_IP }}"
+
+      - name: Test SSH connectivity
+        run: |
+          echo "${{ secrets.HETZNER_SSH_KEY }}" > /tmp/deploy_key
+          chmod 600 /tmp/deploy_key
+          ssh -o StrictHostKeyChecking=no \
+              -o ConnectTimeout=15 \
+              -o BatchMode=yes \
+              -i /tmp/deploy_key \
+              root@${{ secrets.HETZNER_IP }} \
+              "echo 'SSH OK: connected as $(whoami) on $(hostname)'"
+          rm -f /tmp/deploy_key
+
+      - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.HETZNER_IP }}
           username: root
           key: ${{ secrets.HETZNER_SSH_KEY }}
+          port: 22
+          timeout: 30s
+          command_timeout: 15m
           script_stop: true
           script: |
             set -e
@@ -25,22 +54,24 @@ jobs:
             echo ">>> Pulling latest code..."
             git pull origin main
 
-            echo ">>> Rebuilding changed services..."
+            echo ">>> Rebuilding changed services (mcp-server, crew-runner, dashboard, renderer)..."
             docker compose build --no-cache mcp-server crew-runner dashboard renderer
 
             echo ">>> Restarting services..."
             docker compose up -d --remove-orphans
 
-            echo ">>> Waiting for health checks (60s)..."
+            echo ">>> Waiting 60s for containers to become healthy..."
             sleep 60
 
             echo ">>> Service status:"
             docker compose ps
 
-            echo ">>> Verifying MCP server health..."
-            curl -sf http://localhost:8000/health | python3 -c "import sys,json; d=json.load(sys.stdin); print('MCP:', d['status'])"
+            echo ">>> MCP server health:"
+            curl -sf http://localhost:8000/health
 
-            echo ">>> Verifying dashboard health..."
-            curl -sf http://localhost:3002/api/health | python3 -c "import sys,json; d=json.load(sys.stdin); print('Dashboard:', d.get('status','ok'))" || true
+            echo ""
+            echo ">>> Dashboard health:"
+            curl -sf http://localhost:3002/api/health || true
 
-            echo ">>> Deploy complete."
+            echo ""
+            echo "Deploy complete at $(date -u)"
