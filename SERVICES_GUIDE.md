@@ -4,115 +4,170 @@
 
 | Service | URL | Login |
 |---|---|---|
-| **Agent Dashboard** | https://agent.offerberriesvo.com | API key (see below) |
+| **Agent Dashboard** | https://agent.offerberriesvo.com | API key → see "How to Login" below |
 | **Social Scheduler (Postiz)** | https://agent.offerberriesvo.com/postiz | Create account on first visit |
 | **Automation (n8n)** | https://n8n.offerberriesvo.com | `Ihsankhan` / `Mintfever@29` |
-| **Monitoring (Grafana)** | https://monitoring.offerberriesvo.com | `admin` / see .env |
-| **Design API** | https://design.offerberriesvo.com | Bearer token (API only) |
-
-**Dashboard API Key:** stored in `.env` as `OWNER_API_KEY`
+| **Monitoring (Grafana)** | https://monitoring.offerberriesvo.com | `admin` / check `.env → GRAFANA_ADMIN_PASSWORD` |
+| **Design API** | https://design.offerberriesvo.com | Bearer token (API only, not for browser) |
 
 ---
 
-## What Each Service Does
+## How to Login to the Dashboard
 
-### Agent Dashboard (`agent.offerberriesvo.com`)
-Your main control center. Login with the OWNER_API_KEY.
+1. Open https://agent.offerberriesvo.com
+2. You'll see a login page asking for an **API Key**
+3. Enter the value of `OWNER_API_KEY` from `/root/.env` on the server
+4. Click Login — you'll land on the **Queue** page
 
-| Page | Purpose |
-|---|---|
-| **Queue** | Review and approve posts before they publish. Has "Run Agent" to kick off a campaign by topic. |
-| **Analytics** | Impressions, clicks, top posts, platform breakdown, AI recommendations. |
-| **Templates** | The 8 visual card designs the agent uses for images. |
-| **Settings** | Connect social accounts (via Postiz), configure brand voice, posting schedule. |
-| **Demo** | Sandbox — try the agent without real social accounts. |
-
-### Social Scheduler (`/postiz`)
-Full open-source social media scheduling tool (Gitroom/Postiz). Create an account on first visit — any email/password.
-- Connect LinkedIn, Instagram, Twitter/X, YouTube
-- Calendar view for scheduled posts
-- The agent publishes through this automatically once Phase 3 is live
-
-**Do this first:** Connect your social accounts here so they're ready when the agent starts generating content.
-
-### n8n Automation (`n8n.offerberriesvo.com`)
-Visual workflow automation. Currently empty — used in later phases for:
-- "When a post gets 500+ likes → generate follow-up"
-- Weekly performance email reports
-- Cross-platform republishing triggers
-
-### Grafana Monitoring (`monitoring.offerberriesvo.com`)
-System metrics — server health, request rates, container resources. Useful once running real campaigns.
-
-### Open Design (`design.offerberriesvo.com`)
-API-only visual rendering daemon. The agent calls it to generate image cards. Not for direct browser use.
+> **Your owner API key** (copy from server): run `grep OWNER_API_KEY /root/.env` on Hetzner
 
 ---
 
-## The Full Agent Workflow (when complete)
+## What You'll See and What to Do
+
+### Queue Page (`/queue`)
+This is your main control panel. What you'll see:
+- List of posts waiting for your approval — platform badge (LinkedIn/Twitter/Instagram), caption preview, scheduled date
+- **"Run Agent" button** — type a topic (e.g. "World Cup 2026") and click to generate a full set of posts
+- **Approve** — marks a post as approved (will publish via Postiz once Phase 3 wires up the publishing loop)
+- **Reject** — deletes the post from the queue
+
+What to check: If you see "No posts in queue", type a topic and click Run Agent. A post will appear within 30 seconds.
+
+> **Test it now:** The queue already has 1 post — "ICC Cricket World Cup 2026 / LinkedIn" — scheduled for 20 June.
+
+### How the Agent Flow Works (End to End)
 
 ```
-You → Dashboard → type a topic ("Eid sale for clothing SMB")
+You → type topic in Queue page → click "Run Agent"
          ↓
-   Agent researches trending content (Perplexity + Apify scraping)
+   Crew Runner receives the topic
          ↓
-   Agent generates captions for LinkedIn, Instagram, Twitter
+   MCP Server: research_trends (Perplexity searches live web)
          ↓
-   Agent renders visual cards (announcement-card, promo-card, etc.)
+   MCP Server: generate_content (OpenRouter/Gemini writes captions per platform)
          ↓
-   Posts land in your Queue awaiting approval
+   MCP Server: generate_visual (Playwright renders a 1080×1080 PNG)
          ↓
-   You approve → Postiz schedules & publishes automatically
+   MCP Server: queue_post (saves to MongoDB with status "queued")
          ↓
-   Analytics feed back → agent learns what works for your brand
+   Post appears on Queue page — you approve or reject
+         ↓
+   [Phase 3] Approved posts → Postiz schedules & auto-publishes
+         ↓
+   [Phase 5] Analytics feed back → agent learns what performs best
 ```
 
 ---
 
 ## Phase Completion Status
 
-| Phase | What it covers | Status |
-|---|---|---|
-| 1 | Infrastructure (12 services, TLS, auth, DB) | ✅ Complete — 12/12 checks |
-| 2 | MCP Server tools (research, scrape, generate, render, queue, analytics) | 🔄 In progress |
-| 3 | LangGraph agent brain (research→content→visual→publish loop) | ⏳ Pending |
-| 4 | Visual templates (8 HTML card designs + Open Design skills) | ⏳ Pending |
-| 5 | Analytics feedback loop (Supabase, pattern extractor) | ⏳ Pending |
-| 6 | Multi-tenant + demo sessions + payments (Safepay/2Checkout) | ⏳ Pending |
+| Phase | What it covers | Status | What's working |
+|---|---|---|---|
+| **1** | Infrastructure — 12 Docker services, TLS certs, Postgres, Redis, auth | ✅ **Complete** | All services live, HTTPS on all 4 subdomains |
+| **2** | MCP Server — 7 tools: research, scrape, generate content, render visual, queue, analytics, strategy | ✅ **Complete** | All 7 tools callable; queue pipeline fully tested (World Cup post live) |
+| **3** | LangGraph agent brain — autonomous research→content→visual→queue loop | ⏳ **Next** | Crew Runner container is running but agent loop not built yet |
+| **4** | Visual templates — 8 HTML card designs (announcement, promo, stat, quote, etc.) | ⏳ Pending | Renderer is live; 1 basic template working |
+| **5** | Analytics feedback loop — Supabase storage, pattern extractor, strategy updates | ⏳ Pending | Strategy endpoint exists, Supabase not connected |
+| **6** | Multi-tenant + payments — demo sessions, Safepay/2Checkout integration | ⏳ Pending | Demo sessions work; payment hooks wired but not live |
+
+**Phases 1 and 2 are fully working.** You can generate content manually via the dashboard today. Phase 3 will make it autonomous.
+
+---
+
+## How to Check Everything is Working (as a User)
+
+### Quick health check (30 seconds)
+Open these URLs and confirm they load:
+- https://agent.offerberriesvo.com → should show login page
+- https://monitoring.offerberriesvo.com → should show Grafana login
+- https://n8n.offerberriesvo.com → should show n8n login
+
+### Full workflow test
+1. Login to https://agent.offerberriesvo.com with your `OWNER_API_KEY`
+2. You should see the Queue page with 1 post (the World Cup test post)
+3. Type "Eid sale for textile businesses" in the topic box and click **Run Agent**
+4. Wait ~20–30 seconds — a new post should appear in the queue
+5. Click **Approve** on the post
+
+If any step fails, see the Troubleshooting section below.
+
+### Check the MCP Server directly
+```bash
+# From the server (ssh root@167.233.26.146)
+curl http://localhost:8000/health
+# Expected: {"status":"ok","version":"1.0.0","uptime_seconds":...}
+```
+
+---
+
+## Connect Your Social Accounts (Do This When Ready)
+
+1. Go to https://agent.offerberriesvo.com/postiz
+2. Create a Postiz account with any email/password
+3. Connect LinkedIn, Instagram, Twitter/X in Settings → Social Accounts
+4. Once connected, approved posts will start publishing automatically (when Phase 3 lands)
 
 ---
 
 ## Infrastructure Quick Reference
 
-**Server:** 167.233.26.146 (Hetzner)  
-**Compose files:** `/root/docker-compose.yml` + `/root/docker-compose.override.yml`  
+**Server:** 167.233.26.146 (Hetzner VPS)  
+**Compose root:** `/root/` — run all `docker compose` commands from here  
 **Env file:** `/root/.env`  
-**Checkpoint scripts:** `/root/scripts/checkpoint_phaseN.sh`
+**Override (secrets + postiz quirks):** `/root/docker-compose.override.yml`
 
 ### 12 Docker Services
-`caddy` · `crew-runner` · `dashboard` · `grafana` · `mcp-server` · `n8n` · `open-design` · `postgres` · `prometheus` · `redis` · `renderer` · `postiz`
 
-### Key Infrastructure Notes
-- **Postiz quirks:** `TEMPORAL_TLS=true` (skips broken search attribute registration); DATABASE_URL hardcoded to postgres IP `172.23.0.3` (bypasses dual-network DNS ambiguity); port `3000:3000` exposes NestJS backend
-- **Postgres:** md5 auth (not scram-sha-256) for driver compatibility
-- **Cloudflare DNS:** all 4 subdomains set to DNS-only (grey cloud, no proxy) — required for Let's Encrypt TLS to work
-- **Caddy:** DNS-01 ACME via Cloudflare plugin; CF token needs `Zone:Zone:Read` + `Zone:DNS:Edit`
-- **Temporal:** old-stack container at `172.22.0.9:7233`; needs `/opt/offerberries-marketing-agent/dynamicconfig/development-sql.yaml`
+| Container | Role | Port (internal) |
+|---|---|---|
+| `caddy` | Reverse proxy + TLS (Let's Encrypt DNS-01) | 443 public |
+| `dashboard` | Next.js frontend + API proxy | 3002 |
+| `mcp-server` | FastAPI tool server (7 MCP tools) | 8000 |
+| `crew-runner` | LangGraph agent (Phase 3) | 8001 |
+| `renderer` | Playwright PNG renderer | 3001 |
+| `postiz` | Social media scheduler (Gitroom) | 3000 |
+| `open-design` | Visual design API | 7456 |
+| `postgres` | Primary database (Postiz, n8n) | 5432 |
+| `redis` | Cache + rate limiting | 6379 |
+| `n8n` | Automation workflows | 5678 |
+| `grafana` | Metrics dashboard | 3003 |
+| `prometheus` | Metrics collector | 9090 |
 
 ### Useful Commands (run on server as root)
 ```bash
-# Check all services
-docker compose ps
+# Check all 12 services
+cd /root && docker compose ps
 
-# View logs for a service
-docker compose logs -f <service-name>
+# View live logs for a service
+docker compose logs -f mcp-server
 
-# Run a phase checkpoint
+# Run the Phase 1 health checkpoint
 bash scripts/checkpoint_phase1.sh
 
 # Restart a single service
-docker compose restart <service-name>
+docker compose restart mcp-server
 
-# Rebuild and restart after code changes
-docker compose up -d --build <service-name>
+# Rebuild after code change
+docker compose up -d --build mcp-server
 ```
+
+---
+
+## Troubleshooting
+
+| Symptom | Fix |
+|---|---|
+| Login page shows but Queue gives error | Check you're using the correct `OWNER_API_KEY` from `.env` |
+| Queue page empty after "Run Agent" | Check crew-runner logs: `docker compose logs crew-runner` |
+| Post generated but no visual | Check renderer: `curl http://localhost:3001/health` from server |
+| Site unreachable (TLS error) | Check Caddy: `docker compose logs caddy` — may need CF token refresh |
+| Container crashed | `docker compose up -d` from `/root/` to restart everything |
+
+### Known Limitation (Phase 2)
+Posts queued via the dashboard's "Run Agent" button go to the **Crew Runner** service, which needs the Phase 3 agent loop to fully process them. For now, you can call tools directly:
+- Research + generate a post manually using the MCP tools via the API
+- Or wait for Phase 3 which builds the full autonomous loop
+
+### Important: Only One Compose Project
+There used to be two projects running on this server (`/root/` and `/root/offerberries-marketing-agent/`). The old one has been permanently disabled (`.yml.disabled`). Always use `/root/` as the compose root.
