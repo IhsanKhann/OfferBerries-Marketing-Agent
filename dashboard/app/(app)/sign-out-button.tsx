@@ -1,5 +1,6 @@
 'use client';
 import { useRouter } from 'next/navigation';
+import { LogOut } from 'lucide-react';
 
 export function SignOutButton() {
   const router = useRouter();
@@ -10,19 +11,9 @@ export function SignOutButton() {
   }
 
   return (
-    <button
-      onClick={signOut}
-      style={{
-        background: 'none',
-        border: 'none',
-        color: 'rgba(255,255,255,0.4)',
-        fontSize: 12,
-        cursor: 'pointer',
-        padding: 0,
-        fontFamily: 'inherit',
-      }}
-    >
-      Sign Out
+    <button onClick={signOut} className="sidebar-item" style={{ width: '100%', background: 'none', border: 'none', cursor: 'pointer' }}>
+      <LogOut size={16} className="sidebar-item-icon" />
+      <span className="sidebar-item-label">Sign Out</span>
     </button>
   );
 }

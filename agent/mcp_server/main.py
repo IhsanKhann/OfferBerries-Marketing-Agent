@@ -1030,3 +1030,151 @@ async def create_checkout(
         result = resp.json()
 
     return {"checkout_url": result.get("data", {}).get("redirect_url", f"https://sandbox.api.getsafepay.com/checkout")}
+
+
+# ── Account endpoints ──────────────────────────────────────────────────────
+
+@app.get("/account")
+async def get_account(
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    tenant = await get_tenant(x_api_key, authorization)
+    key = x_api_key
+    if not key and authorization and authorization.startswith("Bearer "):
+        key = authorization[7:]
+    prefix = f"ofb_{tenant.tier}_"
+    masked = (prefix + "••••••••" + key[-4:]) if key and len(key) > 8 else None
+    return {
+        "tier": tenant.tier,
+        "tenant_id": tenant.tenant_id,
+        "api_key_masked": masked,
+        "api_key_active": True,
+    }
+
+
+# ── Usage endpoints ────────────────────────────────────────────────────────
+
+from auth import TIER_LIMITS
+
+@app.get("/usage")
+async def get_usage(
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    tenant = await get_tenant(x_api_key, authorization)
+    today = _today()
+    limits = TIER_LIMITS.get(tenant.tier, TIER_LIMITS["starter"])
+
+    tool_usage = {}
+    for tool_name, limit in limits.items():
+        rl_key = f"ratelimit:{tenant.tenant_id}:{tool_name}:{today}"
+        count_str = await redis_client.get(rl_key)
+        used = int(count_str) if count_str else 0
+        tool_usage[tool_name] = {"used": used, "limit": limit}
+
+    # Next reset at midnight UTC
+    from datetime import timedelta
+    now_utc = datetime.now(timezone.utc)
+    reset_at = (now_utc + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+
+    # Vendor credit: OpenRouter balance (best-effort)
+    openrouter_data = {"used_tokens": 0, "credit_balance_usd": 0.0, "monthly_spend_usd": 0.0, "monthly_limit_usd": 20.0, "reset_at": reset_at.isoformat()}
+    openrouter_key = os.getenv("OPENROUTER_API_KEY", "")
+    if openrouter_key:
+        try:
+            async with httpx.AsyncClient(timeout=5) as client:
+                resp = await client.get(
+                    "https://openrouter.ai/api/v1/auth/key",
+                    headers={"Authorization": f"Bearer {openrouter_key}"},
+                )
+                if resp.status_code == 200:
+                    data = resp.json().get("data", {})
+                    openrouter_data["credit_balance_usd"] = float(data.get("limit_remaining", 0) or 0)
+                    openrouter_data["monthly_spend_usd"]  = float(data.get("usage", 0) or 0) / 1_000_000
+        except Exception:
+            pass
+
+    perplexity_data = {"requests_used": 0, "requests_limit": 100, "reset_at": reset_at.isoformat()}
+    apify_data      = {"compute_units_used": 0, "compute_units_limit": 500, "reset_at": reset_at.isoformat()}
+
+    # Count today's tool calls from MongoDB for vendor usage estimate
+    try:
+        pipeline = [
+            {"$match": {"tenant_id": tenant.tenant_id, "recorded_at": {"$gte": now_utc.replace(hour=0, minute=0, second=0, microsecond=0)}}},
+            {"$group": {"_id": "$tool_name", "count": {"$sum": 1}}},
+        ]
+        cursor = db["tool_calls"].aggregate(pipeline)
+        async for doc in cursor:
+            if doc["_id"] == "research_trends":
+                perplexity_data["requests_used"] = doc["count"]
+            elif doc["_id"] == "scrape_competitor":
+                apify_data["compute_units_used"] = doc["count"] * 5
+    except Exception:
+        pass
+
+    return {
+        "reset_at": reset_at.isoformat(),
+        "tier": tenant.tier,
+        "tool_usage": tool_usage,
+        "vendors": {
+            "openrouter": openrouter_data,
+            "perplexity": perplexity_data,
+            "apify": apify_data,
+        },
+    }
+
+
+# ── Models endpoints ───────────────────────────────────────────────────────
+
+OPENROUTER_MODELS = [
+    # Fast
+    {"id": "google/gemini-2.5-flash", "name": "Gemini 2.5 Flash", "tier": "fast", "context_length": 1_000_000, "pricing": {"prompt": "0.075", "completion": "0.30"}, "description": "Fast and cost-effective, great for drafts"},
+    {"id": "meta-llama/llama-3.1-8b-instruct:free", "name": "Llama 3.1 8B (Free)", "tier": "fast", "context_length": 131_072, "pricing": {"prompt": "0", "completion": "0"}, "description": "Free tier, limited quality"},
+    {"id": "mistralai/mistral-7b-instruct:free", "name": "Mistral 7B (Free)", "tier": "fast", "context_length": 32_768, "pricing": {"prompt": "0", "completion": "0"}, "description": "Free, good for simple tasks"},
+    # Balanced
+    {"id": "google/gemini-2.5-pro", "name": "Gemini 2.5 Pro", "tier": "balanced", "context_length": 1_000_000, "pricing": {"prompt": "1.25", "completion": "10.00"}, "description": "Excellent reasoning and long context"},
+    {"id": "anthropic/claude-haiku-4-5", "name": "Claude Haiku 4.5", "tier": "balanced", "context_length": 200_000, "pricing": {"prompt": "0.80", "completion": "4.00"}, "description": "Fast Claude with strong instruction following"},
+    {"id": "openai/gpt-4o-mini", "name": "GPT-4o Mini", "tier": "balanced", "context_length": 128_000, "pricing": {"prompt": "0.15", "completion": "0.60"}, "description": "Efficient OpenAI model for content tasks"},
+    # Premium
+    {"id": "anthropic/claude-sonnet-4-6", "name": "Claude Sonnet 4.6", "tier": "premium", "context_length": 200_000, "pricing": {"prompt": "3.00", "completion": "15.00"}, "description": "Best for nuanced content and brand voice"},
+    {"id": "openai/gpt-4o", "name": "GPT-4o", "tier": "premium", "context_length": 128_000, "pricing": {"prompt": "5.00", "completion": "15.00"}, "description": "OpenAI flagship, best overall quality"},
+    {"id": "google/gemini-2.5-pro-preview", "name": "Gemini 2.5 Pro Preview", "tier": "premium", "context_length": 1_000_000, "pricing": {"prompt": "3.50", "completion": "10.50"}, "description": "Latest Google frontier model"},
+]
+
+@app.get("/models/available")
+async def get_models(
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    await get_tenant(x_api_key, authorization)
+    return OPENROUTER_MODELS
+
+
+@app.get("/config/content-model")
+async def get_content_model(
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    tenant = await get_tenant(x_api_key, authorization)
+    doc = await db["configs"].find_one({"tenant_id": tenant.tenant_id, "key": "content_model"}, {"_id": 0})
+    model_id = doc["value"] if doc else "google/gemini-2.5-flash"
+    return {"model_id": model_id}
+
+
+class ContentModelRequest(BaseModel):
+    model_id: str
+
+@app.put("/config/content-model")
+async def put_content_model(
+    req: ContentModelRequest,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    tenant = await get_tenant(x_api_key, authorization)
+    await db["configs"].update_one(
+        {"tenant_id": tenant.tenant_id, "key": "content_model"},
+        {"$set": {"value": req.model_id, "updated_at": datetime.now(timezone.utc)}},
+        upsert=True,
+    )
+    return {"saved": True, "model_id": req.model_id}
