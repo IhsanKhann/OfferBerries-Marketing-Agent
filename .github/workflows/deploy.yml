@@ -13,29 +13,15 @@ jobs:
     steps:
       - name: Verify secrets are set
         run: |
-          if [ -z "${{ secrets.HETZNER_IP }}" ]; then
-            echo "ERROR: HETZNER_IP secret is not set"
-            echo "Go to: https://github.com/IhsanKhann/OfferBerries-Marketing-Agent/settings/secrets/actions"
+          missing=""
+          [ -z "${{ secrets.HETZNER_IP }}" ] && missing="$missing HETZNER_IP"
+          [ -z "${{ secrets.HETZNER_SSH_KEY }}" ] && missing="$missing HETZNER_SSH_KEY"
+          if [ -n "$missing" ]; then
+            echo "ERROR: missing secrets:$missing"
+            echo "Add them at: https://github.com/IhsanKhann/OfferBerries-Marketing-Agent/settings/secrets/actions"
             exit 1
           fi
-          if [ -z "${{ secrets.HETZNER_SSH_KEY }}" ]; then
-            echo "ERROR: HETZNER_SSH_KEY secret is not set"
-            echo "Go to: https://github.com/IhsanKhann/OfferBerries-Marketing-Agent/settings/secrets/actions"
-            exit 1
-          fi
-          echo "Secrets present. Connecting to ${{ secrets.HETZNER_IP }}"
-
-      - name: Test SSH connectivity
-        run: |
-          echo "${{ secrets.HETZNER_SSH_KEY }}" > /tmp/deploy_key
-          chmod 600 /tmp/deploy_key
-          ssh -o StrictHostKeyChecking=no \
-              -o ConnectTimeout=15 \
-              -o BatchMode=yes \
-              -i /tmp/deploy_key \
-              root@${{ secrets.HETZNER_IP }} \
-              "echo 'SSH OK: connected as $(whoami) on $(hostname)'"
-          rm -f /tmp/deploy_key
+          echo "Secrets OK. Target: ${{ secrets.HETZNER_IP }}"
 
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.3
@@ -49,29 +35,59 @@ jobs:
           script_stop: true
           script: |
             set -e
-            cd /root
 
-            echo ">>> Pulling latest code..."
-            git pull origin main
+            # ── Find project root (works regardless of clone path) ──────────
+            find_project() {
+              for candidate in /root /root/offerberries-marketing-agent /opt/offerberries-marketing-agent /home/deploy/offerberries-marketing-agent; do
+                if [ -f "$candidate/docker-compose.yml" ]; then
+                  echo "$candidate"
+                  return 0
+                fi
+              done
+              # fallback: search up to 3 levels under /root
+              found=$(find /root -maxdepth 3 -name "docker-compose.yml" 2>/dev/null | head -1)
+              if [ -n "$found" ]; then
+                dirname "$found"
+                return 0
+              fi
+              echo ""
+              return 1
+            }
 
-            echo ">>> Rebuilding changed services (mcp-server, crew-runner, dashboard, renderer)..."
+            PROJECT_DIR=$(find_project)
+            if [ -z "$PROJECT_DIR" ]; then
+              echo "ERROR: could not find docker-compose.yml. Is the repo cloned on the server?"
+              echo "Run: git clone https://github.com/IhsanKhann/OfferBerries-Marketing-Agent.git /root/offerberries-marketing-agent"
+              exit 1
+            fi
+
+            echo ">>> Project dir: $PROJECT_DIR"
+            cd "$PROJECT_DIR"
+
+            echo ">>> Current git remote:"
+            git remote -v || true
+
+            echo ">>> Pulling latest code from main..."
+            git fetch origin
+            git reset --hard origin/main
+
+            echo ">>> Rebuilding services..."
             docker compose build --no-cache mcp-server crew-runner dashboard renderer
 
             echo ">>> Restarting services..."
             docker compose up -d --remove-orphans
 
-            echo ">>> Waiting 60s for containers to become healthy..."
+            echo ">>> Waiting 60s for containers..."
             sleep 60
 
             echo ">>> Service status:"
             docker compose ps
 
-            echo ">>> MCP server health:"
-            curl -sf http://localhost:8000/health
+            echo ">>> MCP health:"
+            curl -sf http://localhost:8000/health && echo ""
 
-            echo ""
             echo ">>> Dashboard health:"
-            curl -sf http://localhost:3002/api/health || true
+            curl -sf http://localhost:3002/api/health && echo "" || true
 
             echo ""
-            echo "Deploy complete at $(date -u)"
+            echo "Deploy complete at $(date -u) from dir $PROJECT_DIR"
