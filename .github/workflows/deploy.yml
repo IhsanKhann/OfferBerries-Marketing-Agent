@@ -48,37 +48,65 @@ jobs:
           port: 22
           timeout: 30s
           command_timeout: 15m
-          script_stop: true
+          script_stop: false
           script: |
-            set -e
             cd /root/offerberries-marketing-agent
 
-            echo ">>> Code version:"
-            ls -la dashboard/next.config.js agent/mcp_server/main.py
+            echo "=== DIAGNOSTICS ==="
+            df -h /
+            free -h
+            echo "Running containers:"
+            docker ps --format "{{.Names}} {{.Status}}" 2>/dev/null || true
 
-            echo ">>> Building mcp-server..."
-            docker compose build --no-cache mcp-server
-            echo ">>> Building crew-runner..."
-            docker compose build --no-cache crew-runner
-            echo ">>> Building dashboard..."
-            docker compose build --no-cache dashboard
-            echo ">>> Building renderer..."
-            docker compose build --no-cache renderer
+            echo ""
+            echo "=== FREE DISK (prune old images) ==="
+            docker image prune -f 2>/dev/null || true
 
-            echo ">>> Restarting services..."
+            echo ""
+            echo "=== FILES CHECK ==="
+            ls -la dashboard/next.config.js dashboard/public/ agent/mcp_server/main.py 2>&1
+
+            FAILURES=""
+
+            echo ""
+            echo "=== BUILD mcp-server ==="
+            docker compose build mcp-server 2>&1
+            [ $? -ne 0 ] && FAILURES="$FAILURES mcp-server"
+
+            echo ""
+            echo "=== BUILD crew-runner ==="
+            docker compose build crew-runner 2>&1
+            [ $? -ne 0 ] && FAILURES="$FAILURES crew-runner"
+
+            echo ""
+            echo "=== BUILD dashboard ==="
+            docker compose build dashboard 2>&1
+            [ $? -ne 0 ] && FAILURES="$FAILURES dashboard"
+
+            echo ""
+            echo "=== BUILD renderer ==="
+            docker compose build renderer 2>&1
+            [ $? -ne 0 ] && FAILURES="$FAILURES renderer"
+
+            if [ -n "$FAILURES" ]; then
+              echo ""
+              echo "!!! BUILD FAILED for:$FAILURES"
+              exit 1
+            fi
+
+            echo ""
+            echo "=== All builds OK — starting services ==="
             docker compose up -d --remove-orphans
-
-            echo ">>> Waiting 60s for health checks..."
             sleep 60
 
-            echo ">>> Container status:"
+            echo "=== Service status ==="
             docker compose ps
 
-            echo ">>> MCP health:"
-            curl -sf http://localhost:8000/health && echo ""
+            echo "=== MCP health ==="
+            curl -sf http://localhost:8000/health && echo "" || echo "MCP not responding"
 
-            echo ">>> Dashboard health:"
-            curl -sf http://localhost:3002/api/health && echo "" || true
+            echo "=== Dashboard health ==="
+            curl -sf http://localhost:3002/api/health && echo "" || echo "Dashboard not responding"
 
             echo ""
             echo "=== Deploy complete at $(date -u) ==="
