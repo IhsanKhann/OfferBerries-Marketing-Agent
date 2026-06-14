@@ -8,6 +8,9 @@ const NAV = [
   { href: '/analytics', label: 'Analytics' },
   { href: '/templates', label: 'Templates' },
   { href: '/settings', label: 'Settings' },
+  { href: '/billing', label: 'Billing' },
+  { href: '/tenants', label: 'Tenants' },
+  { href: '/demo', label: 'Demo' },
 ];
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {

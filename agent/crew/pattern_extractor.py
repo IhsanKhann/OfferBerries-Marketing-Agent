@@ -82,7 +82,7 @@ async def extract_patterns(tenant_id: str) -> dict:
                 "https://openrouter.ai/api/v1/chat/completions",
                 headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}"},
                 json={
-                    "model": "google/gemini-flash-1.5",
+                    "model": "google/gemini-2.5-flash",
                     "messages": [
                         {
                             "role": "user",

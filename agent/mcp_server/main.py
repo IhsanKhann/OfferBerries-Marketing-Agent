@@ -598,37 +598,87 @@ async def tool_queue_post(
     return queued.model_dump()
 
 
-async def tool_get_analytics(platform: str = "all", days: int = 7) -> dict:
+async def tool_get_analytics(platform: str = "all", days: int = 7, tenant_id: str = "", db_ref=None) -> dict:
+    from datetime import timedelta
+
+    _db = db_ref if db_ref is not None else db
+
+    # Read from MongoDB — always available regardless of Postiz connection
+    mongo_breakdown: dict = {}
+    mongo_top: list = []
+    total_queued = 0
+    total_approved = 0
+
+    if _db is not None and tenant_id:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        query: dict = {"tenant_id": tenant_id, "created_at": {"$gte": cutoff}}
+        if platform != "all":
+            query["platform"] = platform
+        cursor = _db["posts"].find(query, {"_id": 0}).sort("created_at", -1).limit(200)
+        posts = await cursor.to_list(length=200)
+        for p in posts:
+            plat = p.get("platform", "unknown")
+            status = p.get("status", "queued")
+            if status == "queued":
+                total_queued += 1
+            elif status == "approved":
+                total_approved += 1
+            entry = mongo_breakdown.setdefault(plat, {"impressions": 0, "clicks": 0, "posts": 0, "engagement_rate": 0.0})
+            entry["posts"] += 1
+        mongo_top = [
+            {"postiz_id": p.get("postiz_id", ""), "platform": p.get("platform", ""), "impressions": 0, "clicks": 0, "status": p.get("status", ""), "caption": p.get("caption", "")[:120]}
+            for p in posts[:5]
+        ]
+
+    # Try Postiz for real impression/click data
     postiz_secret = os.getenv("POSTIZ_SECRET", "")
     postiz_url = os.getenv("POSTIZ_URL", "http://postiz:3000")
+    postiz_data: dict = {}
+    if postiz_secret:
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.get(
+                    f"{postiz_url}/api/analytics",
+                    headers={"Authorization": f"Bearer {postiz_secret}"},
+                    params={"days": days},
+                )
+                if resp.status_code == 200:
+                    postiz_data = resp.json()
+        except Exception:
+            pass
 
-    if not postiz_secret:
-        return AnalyticsReport(
-            period_days=days,
-            total_impressions=0,
-            total_clicks=0,
-            trend="flat",
-            recommendations=["Connect your social accounts to start seeing analytics"],
-        ).model_dump()
+    total_impressions = postiz_data.get("totalImpressions", 0)
+    total_clicks = postiz_data.get("totalClicks", 0)
+    top_posts = postiz_data.get("topPosts", mongo_top)[:5]
+    platform_breakdown = postiz_data.get("platformBreakdown", mongo_breakdown)
+    trend = postiz_data.get("trend", "growing" if total_queued > 0 else "flat")
+    best_template = postiz_data.get("bestTemplate", "linkedin-single")
+    best_day = postiz_data.get("bestDay", "")
 
-    async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.get(
-            f"{postiz_url}/api/analytics",
-            headers={"Authorization": f"Bearer {postiz_secret}"},
-            params={"days": days},
-        )
-        data = resp.json() if resp.status_code == 200 else {}
+    recs: list[str] = postiz_data.get("recommendations", [])
+    if not recs:
+        if total_queued > 0:
+            recs = [
+                f"{total_queued} post(s) queued, {total_approved} approved in the last {days} days.",
+                "Connect your LinkedIn and Instagram accounts in Postiz to start publishing.",
+                "Approve queued posts in the Queue page to schedule them.",
+            ]
+        else:
+            recs = [
+                "No posts generated yet. Click 'Run Agent' in the Queue page with a topic.",
+                "Connect your social accounts in Settings → Manage in Postiz.",
+            ]
 
     return AnalyticsReport(
         period_days=days,
-        total_impressions=data.get("totalImpressions", 0),
-        total_clicks=data.get("totalClicks", 0),
-        top_posts=data.get("topPosts", [])[:5],
-        platform_breakdown=data.get("platformBreakdown", {}),
-        trend=data.get("trend", "flat"),
-        best_performing_template=data.get("bestTemplate", ""),
-        best_performing_day=data.get("bestDay", ""),
-        recommendations=data.get("recommendations", []),
+        total_impressions=total_impressions,
+        total_clicks=total_clicks,
+        top_posts=top_posts,
+        platform_breakdown=platform_breakdown,
+        trend=trend,
+        best_performing_template=best_template,
+        best_performing_day=best_day,
+        recommendations=recs,
     ).model_dump()
 
 
@@ -721,6 +771,26 @@ async def rest_delete_post(
     return {"deleted": True, "post_id": post_id}
 
 
+@app.post("/render")
+async def render_template(
+    request: Request,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    await get_tenant(x_api_key, authorization)
+    renderer_url = os.getenv("RENDERER_URL", "http://renderer:3001")
+    body = await request.body()
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(
+            f"{renderer_url}/render",
+            content=body,
+            headers={"Content-Type": "application/json"},
+        )
+        resp.raise_for_status()
+    from fastapi.responses import Response as FastAPIResponse
+    return FastAPIResponse(content=resp.content, media_type="image/png")
+
+
 @app.get("/analytics")
 async def rest_get_analytics(
     platform: str = "all",
@@ -728,8 +798,8 @@ async def rest_get_analytics(
     x_api_key: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
 ):
-    await get_tenant(x_api_key, authorization)
-    return await tool_get_analytics(platform=platform, days=days)
+    tenant = await get_tenant(x_api_key, authorization)
+    return await tool_get_analytics(platform=platform, days=days, tenant_id=tenant.tenant_id)
 
 
 # ── Config endpoints ──────────────────────────────────────────────────────
@@ -792,6 +862,23 @@ class CreateApiKeyRequest(BaseModel):
     tenant_id: str
     tier: str = "starter"
     label: str = ""
+
+@app.get("/admin/api-keys")
+async def list_api_keys(
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    tenant = await get_tenant(x_api_key, authorization)
+    if tenant.tier != "owner":
+        raise HTTPException(status_code=403, detail="Owner only")
+    cursor = db["api_keys"].find({"revoked_at": None}, {"_id": 0, "key_hash": 0}).sort("created_at", -1).limit(100)
+    keys = await cursor.to_list(length=100)
+    for k in keys:
+        for field in ("created_at", "last_used_at"):
+            if k.get(field) and hasattr(k[field], "isoformat"):
+                k[field] = k[field].isoformat()
+    return keys
+
 
 @app.post("/admin/api-keys")
 async def create_api_key(
