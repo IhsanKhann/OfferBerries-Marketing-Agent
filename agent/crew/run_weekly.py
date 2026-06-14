@@ -209,7 +209,6 @@ async def _ensure_indexes():
         return
     coll = db["agent_runs"]
     await coll.create_index([("tenant_id", 1), ("overall_status", 1), ("created_at", -1)])
-    await coll.create_index([("_id", 1)], unique=True)
 
 
 @app.on_event("startup")
