@@ -8,7 +8,7 @@ jobs:
   deploy:
     name: Sync + rebuild
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
 
     steps:
       - name: Checkout code
@@ -27,17 +27,12 @@ jobs:
             root@${{ secrets.HETZNER_IP }} \
             "echo '=== Running containers ===' && docker ps --format '{{.Names}}\t{{.Status}}\t{{.Ports}}' && echo '=== /root contents ===' && ls /root/ && echo '=== Compose projects ===' && docker compose ls 2>/dev/null || true"
 
-      - name: Sync code to original project directory
+      - name: Sync code to server
         run: |
-          # Sync to /root/ directly (where the original project lives based on
-          # docker network name offerberries-marketing-agent_marketing-net).
-          # The project dir name determines compose project name. We check
-          # which location has docker-compose.yml and sync there.
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
             root@${{ secrets.HETZNER_IP }} \
             "find /root -maxdepth 2 -name docker-compose.yml 2>/dev/null | head -5"
 
-          # Rsync to whichever path has the compose file (or /root/ directly)
           rsync -avz --delete \
             --exclude='.git' \
             --exclude='node_modules' \
@@ -49,6 +44,8 @@ jobs:
             -e "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no" \
             ./ root@${{ secrets.HETZNER_IP }}:/root/offerberries-marketing-agent/
 
+      # script_stop: false keeps all output visible even when commands fail.
+      # Actual CI failure is caught by the "Verify deploy" curl step below.
       - name: Build and restart containers
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -58,11 +55,11 @@ jobs:
           port: 22
           timeout: 30s
           command_timeout: 15m
-          script_stop: true
+          script_stop: false
           script: |
-            set -e
+            set -euo pipefail
 
-            # Find the compose project directory
+            # Find compose project dir
             PROJ=""
             for d in /root/offerberries-marketing-agent /root; do
               if [ -f "$d/docker-compose.yml" ]; then
@@ -70,12 +67,15 @@ jobs:
                 break
               fi
             done
-            [ -z "$PROJ" ] && echo "ERROR: no docker-compose.yml found" && exit 1
+            if [ -z "$PROJ" ]; then
+              echo "ERROR: no docker-compose.yml found in /root or /root/offerberries-marketing-agent"
+              exit 1
+            fi
 
             echo "=== Project dir: $PROJ ==="
             cd "$PROJ"
 
-            # Ensure .env exists (copy from /root/.env if needed)
+            # Ensure .env exists
             if [ ! -f .env ] && [ -f /root/.env ]; then
               echo "Linking /root/.env -> .env"
               ln -sf /root/.env .env
@@ -86,47 +86,53 @@ jobs:
             df -h / && free -h
 
             echo "=== Building services ==="
-            FAILS=""
-            docker compose build mcp-server   2>&1 || FAILS="$FAILS mcp-server"
-            docker compose build crew-runner  2>&1 || FAILS="$FAILS crew-runner"
-            docker compose build dashboard    2>&1 || FAILS="$FAILS dashboard"
-            docker compose build renderer     2>&1 || FAILS="$FAILS renderer"
-
-            [ -n "$FAILS" ] && echo "BUILD FAILED:$FAILS" && exit 1
+            docker compose build mcp-server  2>&1
+            docker compose build crew-runner 2>&1
+            docker compose build dashboard   2>&1
+            docker compose build renderer    2>&1
 
             echo "=== Stopping compose project ==="
             docker compose down --remove-orphans 2>&1 || true
 
             echo "=== Killing any container still holding our ports ==="
             for PORT in 443 9080 3000 3001 3002 5678 7456 8000 8001; do
-              HOLDER=$(docker ps -q --filter "publish=${PORT}" 2>/dev/null)
+              HOLDER=$(docker ps -q --filter "publish=${PORT}" 2>/dev/null || true)
               if [ -n "$HOLDER" ]; then
-                echo "  Port ${PORT} still held by $(docker inspect --format '{{.Name}}' $HOLDER) — stopping"
-                docker stop $HOLDER 2>/dev/null || true
+                echo "  Port ${PORT} still held — stopping"
+                docker stop "$HOLDER" 2>/dev/null || true
               fi
             done
 
             echo "=== Starting fresh ==="
-            docker compose up -d 2>&1
-            UP_EXIT=$?
-            [ $UP_EXIT -ne 0 ] && echo "docker compose up failed (exit $UP_EXIT)" && exit 1
+            docker compose up -d
 
-            echo "=== Waiting 60s for health checks ==="
-            sleep 60
+            echo "=== Waiting 75s for services to become healthy ==="
+            sleep 75
 
             echo "=== Service status ==="
             docker compose ps
-
-            echo "=== MCP endpoints (proves new code) ==="
-            curl -sf http://localhost:8000/openapi.json \
-              | python3 -c "import sys,json; paths=json.load(sys.stdin)['paths']; print(sorted(paths.keys()))" \
-              || echo "MCP not responding"
 
             echo "=== MCP health ==="
             curl -sf http://localhost:8000/health && echo ""
 
             echo "=== Dashboard health ==="
-            curl -sf http://localhost:3002/api/health && echo "" || echo "Dashboard not responding yet"
+            curl -sf http://localhost:3002/api/health && echo ""
+
+            echo "=== MCP routes ==="
+            curl -sf http://localhost:8000/openapi.json \
+              | python3 -c "import sys,json; paths=json.load(sys.stdin)['paths']; print(sorted(paths.keys()))" \
+              || echo "WARNING: openapi.json not yet available"
 
             echo ""
             echo "=== Deploy complete at $(date -u) ==="
+
+      # This step runs from the GitHub Actions runner and hits the PUBLIC URL.
+      # It fails the whole CI job if the site isn't actually serving traffic,
+      # regardless of what the SSH script reported.
+      - name: Verify deploy (public health check)
+        run: |
+          echo "Waiting 15s for Caddy to route traffic..."
+          sleep 15
+          curl -sf --max-time 15 https://agent.${{ secrets.HETZNER_DOMAIN }}/api/health \
+            && echo "Dashboard is live" \
+            || (echo "FAIL: https://agent.${{ secrets.HETZNER_DOMAIN }}/api/health did not return 200" && exit 1)
