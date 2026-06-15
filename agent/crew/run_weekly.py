@@ -121,7 +121,7 @@ async def _run_agent(run_id: str, initial_state: AgentState):
         await _update_run(run_id, "running", initial_state)
         final_state = await agent_graph.ainvoke(initial_state)
         await _update_run(run_id, "completed", final_state)
-        if db:
+        if db is not None:
             await db["runs"].insert_one({
                 "run_id": run_id,
                 "status": "completed",
@@ -131,7 +131,7 @@ async def _run_agent(run_id: str, initial_state: AgentState):
     except Exception as e:
         logger.error(f"Agent run {run_id} failed: {e}")
         await _update_run(run_id, "failed", initial_state, error=str(e))
-        if db:
+        if db is not None:
             await db["runs"].insert_one({
                 "run_id": run_id,
                 "status": "failed",
@@ -162,7 +162,7 @@ async def get_status(run_id: str, x_api_key: Optional[str] = Header(None)):
     _require_owner(x_api_key)
     raw = await redis_client.get(f"run:{run_id}")
     if not raw:
-        if db:
+        if db is not None:
             doc = await db["runs"].find_one({"run_id": run_id})
             if doc:
                 doc.pop("_id", None)
@@ -174,7 +174,7 @@ async def get_status(run_id: str, x_api_key: Optional[str] = Header(None)):
 @app.get("/agent/history")
 async def get_history(x_api_key: Optional[str] = Header(None)):
     _require_owner(x_api_key)
-    if not db:
+    if db is None:
         return []
     cursor = db["runs"].find({}, {"_id": 0, "run_id": 1, "status": 1, "completed_at": 1}).sort("completed_at", -1).limit(20)
     return await cursor.to_list(length=20)
@@ -229,7 +229,7 @@ async def create_run(
 ):
     """Create and immediately start an agent run."""
     _require_owner(x_api_key)
-    if not db:
+    if db is None:
         raise HTTPException(status_code=503, detail="Database not available")
 
     run = AgentRun(
@@ -255,7 +255,7 @@ async def list_runs(
     x_api_key: Optional[str] = Header(None),
 ):
     _require_owner(x_api_key)
-    if not db:
+    if db is None:
         return []
     query: dict = {"tenant_id": _tenant_id()}
     if status:
@@ -281,7 +281,11 @@ async def get_run(
 ):
     _require_owner(x_api_key)
     doc = await _fetch_run_doc(run_id)
+    doc["id"] = str(doc.pop("_id", run_id))
     doc.pop("state_snapshot", None)
+    for k in ("created_at", "updated_at"):
+        if doc.get(k) and hasattr(doc[k], "isoformat"):
+            doc[k] = doc[k].isoformat()
     return doc
 
 
@@ -347,7 +351,7 @@ async def reject_stage(
     _require_owner(x_api_key)
     if stage not in STAGE_ORDER:
         raise HTTPException(status_code=400, detail=f"Unknown stage: {stage}")
-    if not db:
+    if db is None:
         raise HTTPException(status_code=503, detail="Database not available")
 
     doc = await _fetch_run_doc(run_id)
@@ -376,7 +380,7 @@ async def cancel_run_endpoint(
 ):
     _require_owner(x_api_key)
     cancel_run(run_id)
-    if db:
+    if db is not None:
         await db["agent_runs"].update_one(
             {"_id": run_id},
             {"$set": {"overall_status": "cancelled", "updated_at": datetime.now(timezone.utc)}},
@@ -436,7 +440,7 @@ async def get_run_cost(
 ):
     """Aggregate tool_calls for a run to produce a cost breakdown."""
     _require_owner(x_api_key)
-    if not db:
+    if db is None:
         raise HTTPException(status_code=503, detail="Database not available")
 
     pipeline = [
@@ -534,7 +538,7 @@ async def regenerate_visual(
 ):
     """Regenerate a visual for a specific platform using an updated brief."""
     _require_owner(x_api_key)
-    if not db:
+    if db is None:
         raise HTTPException(status_code=503, detail="Database not available")
 
     doc = await db["agent_runs"].find_one({"_id": run_id})
@@ -593,7 +597,7 @@ async def regenerate_visual(
 # ── Helper ─────────────────────────────────────────────────────────────────
 
 async def _fetch_run_doc(run_id: str, raise_404: bool = True) -> dict:
-    if not db:
+    if db is None:
         if raise_404:
             raise HTTPException(status_code=503, detail="Database not available")
         return {}

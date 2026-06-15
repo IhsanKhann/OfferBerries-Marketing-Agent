@@ -967,6 +967,38 @@ tbody tr:hover td { background: var(--bg-subtle); }
 .alert-info    { background: var(--info-bg);    color: var(--info-text);    border-color: var(--info-border); }
 
 /* ═══════════════════════════════════════════════════════════════
+   PAGE LAYOUT UTILITIES
+═══════════════════════════════════════════════════════════════ */
+.page-container {
+  padding: 28px 32px;
+  max-width: 960px;
+}
+
+.page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+
+.page-title {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--text-primary);
+  line-height: 1.2;
+  margin: 0 0 4px 0;
+}
+
+.page-subtitle {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 0;
+  line-height: 1.4;
+}
+
+/* ═══════════════════════════════════════════════════════════════
    EMPTY STATES
 ═══════════════════════════════════════════════════════════════ */
 .empty-state {
