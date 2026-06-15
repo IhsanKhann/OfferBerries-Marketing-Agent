@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState, useRef } from 'react';
-import { Send, Linkedin, Twitter, Instagram, Youtube, Mail, CheckCircle, XCircle } from 'lucide-react';
+import { Send, Linkedin, Twitter, Instagram, Youtube, Mail, CheckCircle, XCircle, ExternalLink } from 'lucide-react';
+import Link from 'next/link';
 import { notify } from '../../../lib/toast';
 import AgentErrorBanner, { type AgentError } from '../../../components/AgentErrorBanner';
 
@@ -33,6 +34,8 @@ const PLATFORM_COLOR: Record<string, string> = {
   youtube: '#FF0000', email: '#6366F1',
 };
 
+const STAGE_NAMES = ['research', 'content_generation', 'visual_generation', 'scheduling'];
+
 const STEPS = [
   { label: 'Research',       meta: 'Perplexity API' },
   { label: 'Generate',       meta: 'OpenRouter · Gemini' },
@@ -42,21 +45,16 @@ const STEPS = [
   { label: 'Self-Improve',   meta: 'Pattern extractor' },
 ];
 
-function stepStatus(idx: number, agentStatus: string, posts: Post[]): 'done' | 'running' | 'pending' | 'failed' {
-  if (agentStatus === 'failed') return idx === 0 ? 'failed' : 'pending';
-  if (agentStatus === 'completed') return idx <= 3 ? 'done' : 'pending';
-  if (agentStatus === 'started' || agentStatus === 'starting') {
-    if (idx === 0) return 'running';
+function stepStatus(idx: number, overallStatus: string, currentStage: string): 'done' | 'running' | 'pending' | 'failed' {
+  if (overallStatus === 'failed' || overallStatus === 'cancelled') return idx === 0 ? 'failed' : 'pending';
+  if (overallStatus === 'completed') return idx <= 3 ? 'done' : 'pending';
+  const curIdx = STAGE_NAMES.indexOf(currentStage);
+  if (overallStatus === 'running' || overallStatus === 'paused_for_review') {
+    if (curIdx < 0) return idx === 0 ? 'running' : 'pending';
+    if (idx < curIdx) return 'done';
+    if (idx === curIdx) return 'running';
     return 'pending';
   }
-  if (agentStatus.includes('research') && idx === 0) return 'running';
-  if (agentStatus.includes('content') && idx < 1) return 'done';
-  if (agentStatus.includes('content') && idx === 1) return 'running';
-  if (agentStatus.includes('visual') && idx < 2) return 'done';
-  if (agentStatus.includes('visual') && idx === 2) return 'running';
-  if (agentStatus.includes('queue') && idx < 3) return 'done';
-  if (agentStatus.includes('queue') && idx === 3) return 'running';
-  if (posts.length > 0 && idx < 4) return 'done';
   return 'pending';
 }
 
@@ -67,8 +65,9 @@ export default function QueuePage() {
   const [topic, setTopic]     = useState('');
   const [running, setRunning] = useState(false);
   const [runId, setRunId]     = useState<string | null>(null);
-  const [runStatus, setRunStatus] = useState('');
-  const [messages, setMessages]   = useState<ChatMessage[]>([
+  const [runStatus, setRunStatus]       = useState('');
+  const [currentStage, setCurrentStage] = useState('');
+  const [messages, setMessages] = useState<ChatMessage[]>([
     { role: 'assistant', content: 'Hi! I\'m your research assistant. Tell me what topic you\'d like to create content about and I\'ll research trends, competitors, and top-performing posts.' },
   ]);
   const [activePlatforms, setActivePlatforms] = useState<string[]>(['LinkedIn', 'Twitter', 'Instagram']);
@@ -82,25 +81,31 @@ export default function QueuePage() {
     if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight;
   }, [messages]);
 
+  // Poll run status using the /runs/{id} endpoint so the run appears on the Runs page
   useEffect(() => {
-    if (!runId || runStatus === 'completed' || runStatus === 'failed') return;
+    if (!runId || runStatus === 'completed' || runStatus === 'failed' || runStatus === 'cancelled') return;
     const t = setInterval(async () => {
-      const res = await fetch(`/api/proxy/agent/status/${runId}`);
-      const data = await res.json();
-      setRunStatus(data.status);
-      if (data.status === 'completed') {
-        clearInterval(t);
-        setRunning(false);
-        setMessages(m => [...m, { role: 'assistant', content: '✅ Agent pipeline completed! New posts have been added to the queue below.' }]);
-        notify.success('Agent completed', 'New posts added to queue');
-        fetchPosts();
-      }
-      if (data.status === 'failed') {
-        clearInterval(t);
-        setRunning(false);
-        setMessages(m => [...m, { role: 'assistant', content: '❌ Agent pipeline failed. Check logs for details.' }]);
-        notify.error('Agent failed', 'Check server logs for details');
-      }
+      try {
+        const res = await fetch(`/api/proxy/runs/${runId}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        const status: string = data.overall_status ?? '';
+        setRunStatus(status);
+        setCurrentStage(data.current_stage ?? '');
+        if (status === 'completed') {
+          clearInterval(t);
+          setRunning(false);
+          setMessages(m => [...m, { role: 'assistant', content: '✅ Agent pipeline completed! New posts have been added to the queue below.' }]);
+          notify.success('Agent completed', 'New posts added to queue');
+          fetchPosts();
+        }
+        if (status === 'failed' || status === 'cancelled') {
+          clearInterval(t);
+          setRunning(false);
+          setMessages(m => [...m, { role: 'assistant', content: `❌ Agent pipeline ${status}. Check the run detail page for error information.` }]);
+          notify.error(`Agent ${status}`, 'Check run details for more info');
+        }
+      } catch {}
     }, 5000);
     return () => clearInterval(t);
   }, [runId, runStatus]);
@@ -118,13 +123,13 @@ export default function QueuePage() {
 
   async function approvePost(id: string) {
     await fetch(`/api/proxy/queue/${id}/approve`, { method: 'POST' });
-    notify.success('Post approved', 'Added to publishing schedule');
+    notify.success('Post approved', 'Scheduled for publishing in Postiz');
     fetchPosts();
   }
 
   async function rejectPost(id: string) {
     await fetch(`/api/proxy/queue/${id}`, { method: 'DELETE' });
-    notify.info('Post rejected', 'Removed from queue');
+    notify.info('Post removed', 'Deleted from queue');
     fetchPosts();
   }
 
@@ -135,15 +140,24 @@ export default function QueuePage() {
     setMessages(m => [...m, { role: 'user', content: userMsg }]);
     setRunning(true);
     setRunStatus('starting');
+    setCurrentStage('');
 
-    const res = await fetch('/api/proxy/agent/run', {
+    // Save the selected research model to config so the pipeline uses it
+    try {
+      await fetch('/api/proxy/config/research-model', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model_id: researchModel }),
+      });
+    } catch {}
+
+    const res = await fetch('/api/proxy/runs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         topic: userMsg,
-        platform_filter: activePlatforms.map(p => p.toLowerCase()),
-        dry_run: false,
-        research_model: researchModel,
+        platforms: activePlatforms.map(p => p.toLowerCase()),
+        execution_mode: 'automated',
       }),
     });
 
@@ -151,8 +165,8 @@ export default function QueuePage() {
       const data = await res.json();
       setAgentError(null);
       setRunId(data.run_id);
-      setRunStatus('started');
-      setMessages(m => [...m, { role: 'assistant', content: `🚀 Agent pipeline started (run ${data.run_id.slice(0, 8)}…). Researching "${userMsg}" — check the Workflow panel for live progress.` }]);
+      setRunStatus('pending');
+      setMessages(m => [...m, { role: 'assistant', content: `🚀 Run ${data.run_id.slice(0, 8)}… started for "${userMsg}". Watch the pipeline panel for live progress — or open the Runs page to see all details.` }]);
       notify.info('Agent started', `Researching: ${userMsg}`);
     } else {
       setRunning(false);
@@ -163,8 +177,9 @@ export default function QueuePage() {
         setAgentError(detail as AgentError);
         setMessages(m => [...m, { role: 'assistant', content: `Research failed: ${(detail as AgentError).message}` }]);
       } else {
-        setMessages(m => [...m, { role: 'assistant', content: '❌ Failed to start agent. Please try again.' }]);
-        notify.error('Failed to start', 'Check your connection and try again');
+        const msg = typeof detail === 'string' ? detail : `HTTP ${res.status}`;
+        setMessages(m => [...m, { role: 'assistant', content: `❌ Failed to start run: ${msg}` }]);
+        notify.error('Failed to start', msg);
       }
     }
   }
@@ -201,7 +216,6 @@ export default function QueuePage() {
       <div className="content-area" style={{ display: 'flex', gap: 16, flex: 1, minHeight: 0, overflow: 'hidden' }}>
         {/* Left panel */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 16, minWidth: 0, overflow: 'hidden' }}>
-          {/* Agent error banner */}
           {agentError && (
             <AgentErrorBanner
               error={agentError}
@@ -232,7 +246,9 @@ export default function QueuePage() {
                   <div className="bubble-label">Agent</div>
                   <div className="bubble-body" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <span className="spinner spinner-dark" />
-                    <span style={{ color: 'var(--text-muted)' }}>Running pipeline… ({runStatus})</span>
+                    <span style={{ color: 'var(--text-muted)' }}>
+                      Running pipeline… ({currentStage ? currentStage.replace(/_/g, ' ') : runStatus})
+                    </span>
                   </div>
                 </div>
               )}
@@ -249,9 +265,7 @@ export default function QueuePage() {
                 >
                   {m.label}
                   <span style={{
-                    fontSize: 10,
-                    padding: '1px 5px',
-                    borderRadius: 4,
+                    fontSize: 10, padding: '1px 5px', borderRadius: 4,
                     background: researchModel === m.id ? 'rgba(255,255,255,0.2)' : 'var(--surface-raised)',
                     color: researchModel === m.id ? 'inherit' : 'var(--text-muted)',
                   }}>
@@ -303,9 +317,7 @@ export default function QueuePage() {
             </div>
             <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
               {loading ? (
-                <div className="empty-state">
-                  <span className="spinner spinner-dark" />
-                </div>
+                <div className="empty-state"><span className="spinner spinner-dark" /></div>
               ) : posts.length === 0 ? (
                 <div className="empty-state">
                   <div className="empty-icon">📋</div>
@@ -331,13 +343,27 @@ export default function QueuePage() {
                           {post.caption?.substring(0, 180)}{post.caption && post.caption.length > 180 ? '…' : ''}
                         </p>
                       </div>
-                      <div className="flex-row gap-2" style={{ flexShrink: 0 }}>
-                        <button onClick={() => approvePost(post.postiz_id)} className="btn btn-sm" style={{ background: 'var(--success-bg)', color: 'var(--success-text)', border: '1px solid var(--success-border)' }}>
-                          <CheckCircle size={12} /> Approve
-                        </button>
-                        <button onClick={() => rejectPost(post.postiz_id)} className="btn btn-danger btn-sm">
-                          <XCircle size={12} /> Reject
-                        </button>
+                      <div className="flex-row gap-2" style={{ flexShrink: 0, flexDirection: 'column', alignItems: 'flex-end' }}>
+                        <div className="flex-row gap-2">
+                          <button
+                            onClick={() => approvePost(post.postiz_id)}
+                            className="btn btn-sm"
+                            style={{ background: 'var(--success-bg)', color: 'var(--success-text)', border: '1px solid var(--success-border)' }}
+                            title="Approve: schedules this post for publishing via Postiz at the time shown"
+                          >
+                            <CheckCircle size={12} /> Approve
+                          </button>
+                          <button
+                            onClick={() => rejectPost(post.postiz_id)}
+                            className="btn btn-danger btn-sm"
+                            title="Reject: permanently deletes this post from the queue"
+                          >
+                            <XCircle size={12} /> Reject
+                          </button>
+                        </div>
+                        <span style={{ fontSize: 10, color: 'var(--text-placeholder)' }}>
+                          Approve → schedules · Reject → deletes
+                        </span>
                       </div>
                     </div>
                   );
@@ -351,10 +377,21 @@ export default function QueuePage() {
         <div style={{ width: 276, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 12, overflowY: 'auto' }}>
           {/* Agent pipeline stepper */}
           <div className="card">
-            <div className="card-title" style={{ marginBottom: 16 }}>Agent Pipeline</div>
+            <div className="flex-between" style={{ marginBottom: 16 }}>
+              <div className="card-title">Agent Pipeline</div>
+              {runId && (
+                <Link
+                  href={`/runs/${runId}`}
+                  className="btn btn-secondary btn-sm"
+                  style={{ gap: 4, fontSize: 11 }}
+                >
+                  <ExternalLink size={11} /> View Run
+                </Link>
+              )}
+            </div>
             <div className="stepper">
               {STEPS.map((step, i) => {
-                const status = stepStatus(i, runStatus, posts);
+                const status = stepStatus(i, runStatus, currentStage);
                 return (
                   <div key={i} className="step-item">
                     <div className={`step-dot ${status}`}>
@@ -368,6 +405,16 @@ export default function QueuePage() {
                 );
               })}
             </div>
+            {runId && (
+              <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border-subtle)' }}>
+                <Link
+                  href="/runs"
+                  style={{ fontSize: 12, color: 'var(--text-muted)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4 }}
+                >
+                  <ExternalLink size={11} /> All runs
+                </Link>
+              </div>
+            )}
           </div>
 
           {/* Upload zone (future) */}
@@ -376,13 +423,9 @@ export default function QueuePage() {
             <div className="card-sub" style={{ marginBottom: 12 }}>Upload inspiration images for the agent</div>
             <div
               style={{
-                border: '1.5px dashed var(--border-strong)',
-                borderRadius: 'var(--radius-md)',
-                padding: '20px 12px',
-                textAlign: 'center',
-                color: 'var(--text-muted)',
-                fontSize: 12,
-                cursor: 'pointer',
+                border: '1.5px dashed var(--border-strong)', borderRadius: 'var(--radius-md)',
+                padding: '20px 12px', textAlign: 'center', color: 'var(--text-muted)',
+                fontSize: 12, cursor: 'pointer',
                 transition: 'border-color var(--transition-fast), background var(--transition-fast)',
               }}
               onDragOver={e => { e.preventDefault(); (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-focus)'; }}
@@ -391,7 +434,6 @@ export default function QueuePage() {
               Drop images here<br />
               <span style={{ fontSize: 11, color: 'var(--text-placeholder)' }}>PNG, JPG up to 20 files</span>
             </div>
-            {/* TODO: POST /api/proxy/agent/references with FormData once backend implemented */}
           </div>
 
           {/* Help widget */}
@@ -411,7 +453,6 @@ export default function QueuePage() {
             >
               Send Message
             </button>
-            {/* TODO: POST /api/proxy/contact once backend implemented */}
           </div>
         </div>
       </div>

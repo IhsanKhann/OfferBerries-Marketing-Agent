@@ -53,8 +53,8 @@ export default function TemplatesPage() {
     BUILT_IN_TEMPLATES.map(t => ({ ...t, isBuiltIn: true }))
   );
   const [platformFilter, setPlatformFilter] = useState('All');
-  const [previewUrls, setPreviewUrls]       = useState<Record<string, string>>({});
-  const [loadingPreview, setLoadingPreview] = useState<string | null>(null);
+  const [previewUrls, setPreviewUrls]         = useState<Record<string, string>>({});
+  const [loadingPreviews, setLoadingPreviews] = useState<Set<string>>(new Set());
   const [previewModal, setPreviewModal]     = useState<{ url: string; name: string } | null>(null);
   const [editId, setEditId]                 = useState<string | null>(null);
   const [editValues, setEditValues]         = useState<{ name: string; description: string }>({ name: '', description: '' });
@@ -67,8 +67,8 @@ export default function TemplatesPage() {
   const filtered = templates.filter(t => platformFilter === 'All' || t.platform === platformFilter);
 
   async function fetchPreview(id: string) {
-    if (previewUrls[id] || loadingPreview) return;
-    setLoadingPreview(id);
+    if (previewUrls[id] || loadingPreviews.has(id)) return;
+    setLoadingPreviews(prev => new Set(prev).add(id));
     try {
       const res = await fetch('/api/proxy/render', {
         method: 'POST',
@@ -84,7 +84,7 @@ export default function TemplatesPage() {
     } catch {
       notify.error('Preview failed', 'Network error');
     } finally {
-      setLoadingPreview(null);
+      setLoadingPreviews(prev => { const s = new Set(prev); s.delete(id); return s; });
     }
   }
 
@@ -219,10 +219,10 @@ export default function TemplatesPage() {
                             setPreviewModal({ url: '', name: t.name });
                           }
                         }}
-                        disabled={loadingPreview === t.id}
+                        disabled={loadingPreviews.has(t.id)}
                         className="btn btn-secondary btn-sm"
                       >
-                        {loadingPreview === t.id ? <><span className="spinner spinner-dark" style={{ width: 10, height: 10 }} /> Rendering…</> : <><Eye size={12} /> Preview</>}
+                        {loadingPreviews.has(t.id) ? <><span className="spinner spinner-dark" style={{ width: 10, height: 10 }} /> Rendering…</> : <><Eye size={12} /> Preview</>}
                       </button>
                       <button
                         className="btn btn-primary btn-sm"

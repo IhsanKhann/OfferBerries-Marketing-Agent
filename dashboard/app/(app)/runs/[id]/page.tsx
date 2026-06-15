@@ -230,8 +230,9 @@ export default function RunDetailPage() {
           const isResearch = stageName === 'research';
           const isVisual = stageName === 'visual_generation';
           const visualPlatform = run.platforms[0] ?? 'linkedin';
+          // visual_assets is keyed by platform: { linkedin: { url, source, ... }, ... }
           const visualUrl = isVisual && stage.output
-            ? (stage.output as Record<string, unknown>).url as string | undefined
+            ? ((stage.output as Record<string, Record<string, unknown>>)[visualPlatform] as Record<string, unknown> | undefined)?.url as string | undefined
             : undefined;
 
           return (
@@ -282,14 +283,43 @@ export default function RunDetailPage() {
                 />
               )}
 
-              {/* Visual generation: editor panel when paused or approved */}
-              {isVisual && (isPaused || stage.status === 'approved') && (
-                <VisualEditorPanel
-                  runId={run.id}
-                  platform={visualPlatform}
-                  initialVisualUrl={visualUrl}
-                  onApprove={(_platform, _url) => approveStage(stageName)}
-                />
+              {/* Visual generation: show each platform's visual when paused or approved */}
+              {isVisual && (isPaused || stage.status === 'approved') && stage.output && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  {run.platforms.map(platform => {
+                    const asset = (stage.output as Record<string, Record<string, unknown>>)[platform];
+                    const url = asset?.url as string | undefined;
+                    return (
+                      <div key={platform}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'capitalize', marginBottom: 8 }}>
+                          {platform}
+                        </div>
+                        <VisualEditorPanel
+                          runId={run.id}
+                          platform={platform}
+                          initialVisualUrl={url}
+                          onApprove={(_p, _u) => approveStage(stageName)}
+                        />
+                      </div>
+                    );
+                  })}
+                  {isPaused && (
+                    <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                      <button
+                        onClick={() => approveStage(stageName)}
+                        disabled={approvingStage === stageName}
+                        className="btn btn-primary btn-sm"
+                        style={{ gap: 4 }}
+                      >
+                        <CheckCircle size={13} />
+                        {approvingStage === stageName ? 'Approving…' : 'Approve All Visuals'}
+                      </button>
+                      <button onClick={() => rejectStage(stageName)} className="btn btn-secondary btn-sm" style={{ gap: 4 }}>
+                        <RefreshCw size={13} /> Redo
+                      </button>
+                    </div>
+                  )}
+                </div>
               )}
 
               {/* Generic paused stage: approve/reject buttons */}
