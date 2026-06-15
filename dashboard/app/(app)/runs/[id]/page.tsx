@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { notify } from '../../../../lib/toast';
 import ResearchBriefReview, { type ResearchBrief } from '../../../../components/ResearchBriefReview';
+import VisualEditorPanel from '../../../../components/VisualEditorPanel';
 
 type StageStatus = 'pending' | 'running' | 'paused' | 'approved' | 'failed' | 'skipped';
 type OverallStatus = 'pending' | 'running' | 'paused_for_review' | 'completed' | 'failed' | 'cancelled';
@@ -227,6 +228,11 @@ export default function RunDetailPage() {
           const color = STATUS_COLOR[stage.status] ?? 'var(--text-muted)';
           const isPaused = stage.status === 'paused';
           const isResearch = stageName === 'research';
+          const isVisual = stageName === 'visual_generation';
+          const visualPlatform = run.platforms[0] ?? 'linkedin';
+          const visualUrl = isVisual && stage.output
+            ? (stage.output as Record<string, unknown>).url as string | undefined
+            : undefined;
 
           return (
             <div key={stageName} className="card">
@@ -276,8 +282,18 @@ export default function RunDetailPage() {
                 />
               )}
 
+              {/* Visual generation: editor panel when paused or approved */}
+              {isVisual && (isPaused || stage.status === 'approved') && (
+                <VisualEditorPanel
+                  runId={run.id}
+                  platform={visualPlatform}
+                  initialVisualUrl={visualUrl}
+                  onApprove={(_platform, _url) => approveStage(stageName)}
+                />
+              )}
+
               {/* Generic paused stage: approve/reject buttons */}
-              {isPaused && !isResearch && (
+              {isPaused && !isResearch && !isVisual && (
                 <div>
                   <pre style={{
                     fontSize: 11, background: 'var(--surface-raised)',
@@ -310,8 +326,8 @@ export default function RunDetailPage() {
                 </div>
               )}
 
-              {/* Approved output preview (non-research) */}
-              {stage.status === 'approved' && !isResearch && stage.output && (
+              {/* Approved output preview (non-research, non-visual) */}
+              {stage.status === 'approved' && !isResearch && !isVisual && stage.output && (
                 <div style={{ marginTop: 8 }}>
                   <pre style={{
                     fontSize: 11, background: 'var(--surface-raised)',
