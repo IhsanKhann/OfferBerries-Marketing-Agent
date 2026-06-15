@@ -103,7 +103,7 @@ class TestHashtagsAreTopicSpecific:
             with patch("httpx.AsyncClient") as mock_cls:
                 mock_cls.return_value = _make_mock_http(json_resp)
                 with patch("main.db") as mock_db:
-                    mock_db.__getitem__ = MagicMock(return_value=MagicMock(find_one=AsyncMock(return_value=None)))
+                    mock_db.__getitem__ = MagicMock(return_value=MagicMock(find_one=AsyncMock(return_value=None), count_documents=AsyncMock(return_value=1), insert_many=AsyncMock()))
                     result = await tool_generate_content(
                         brief=PAYROLL_BRIEF, platform="linkedin", tenant_id="test"
                     )
@@ -125,7 +125,7 @@ class TestHashtagsAreTopicSpecific:
             with patch("httpx.AsyncClient") as mock_cls:
                 mock_cls.return_value = _make_mock_http(json_resp)
                 with patch("main.db") as mock_db:
-                    mock_db.__getitem__ = MagicMock(return_value=MagicMock(find_one=AsyncMock(return_value=None)))
+                    mock_db.__getitem__ = MagicMock(return_value=MagicMock(find_one=AsyncMock(return_value=None), count_documents=AsyncMock(return_value=1), insert_many=AsyncMock()))
                     result = await tool_generate_content(
                         brief=PAYROLL_BRIEF, platform="linkedin", tenant_id="test"
                     )
@@ -150,7 +150,7 @@ class TestHashtagsAreTopicSpecific:
 
         with patch.dict(os.environ, {"OPENROUTER_API_KEY": "test_key"}):
             with patch("main.db") as mock_db:
-                mock_db.__getitem__ = MagicMock(return_value=MagicMock(find_one=AsyncMock(return_value=None)))
+                mock_db.__getitem__ = MagicMock(return_value=MagicMock(find_one=AsyncMock(return_value=None), count_documents=AsyncMock(return_value=1), insert_many=AsyncMock()))
 
                 with patch("httpx.AsyncClient") as mock_cls:
                     mock_cls.return_value = _make_mock_http(response_a)
@@ -176,7 +176,7 @@ class TestHashtagCountByPlatform:
             with patch("httpx.AsyncClient") as mock_cls:
                 mock_cls.return_value = _make_mock_http(json_resp)
                 with patch("main.db") as mock_db:
-                    mock_db.__getitem__ = MagicMock(return_value=MagicMock(find_one=AsyncMock(return_value=None)))
+                    mock_db.__getitem__ = MagicMock(return_value=MagicMock(find_one=AsyncMock(return_value=None), count_documents=AsyncMock(return_value=1), insert_many=AsyncMock()))
                     result = await tool_generate_content(brief=PAYROLL_BRIEF, platform="linkedin", tenant_id="t")
 
         assert len(result["hashtags"]) <= 5
@@ -192,7 +192,7 @@ class TestHashtagCountByPlatform:
             with patch("httpx.AsyncClient") as mock_cls:
                 mock_cls.return_value = _make_mock_http(json_resp)
                 with patch("main.db") as mock_db:
-                    mock_db.__getitem__ = MagicMock(return_value=MagicMock(find_one=AsyncMock(return_value=None)))
+                    mock_db.__getitem__ = MagicMock(return_value=MagicMock(find_one=AsyncMock(return_value=None), count_documents=AsyncMock(return_value=1), insert_many=AsyncMock()))
                     result = await tool_generate_content(brief=PAYROLL_BRIEF, platform="instagram", tenant_id="t")
 
         assert len(result["hashtags"]) >= 5
@@ -210,7 +210,7 @@ class TestCTAGeneration:
             with patch("httpx.AsyncClient") as mock_cls:
                 mock_cls.return_value = _make_mock_http(json_resp)
                 with patch("main.db") as mock_db:
-                    mock_db.__getitem__ = MagicMock(return_value=MagicMock(find_one=AsyncMock(return_value=None)))
+                    mock_db.__getitem__ = MagicMock(return_value=MagicMock(find_one=AsyncMock(return_value=None), count_documents=AsyncMock(return_value=1), insert_many=AsyncMock()))
                     result = await tool_generate_content(
                         brief=EDUCATIONAL_BRIEF, platform="linkedin", tenant_id="t"
                     )
@@ -230,7 +230,7 @@ class TestCTAGeneration:
             with patch("httpx.AsyncClient") as mock_cls:
                 mock_cls.return_value = _make_mock_http(json_resp)
                 with patch("main.db") as mock_db:
-                    mock_db.__getitem__ = MagicMock(return_value=MagicMock(find_one=AsyncMock(return_value=None)))
+                    mock_db.__getitem__ = MagicMock(return_value=MagicMock(find_one=AsyncMock(return_value=None), count_documents=AsyncMock(return_value=1), insert_many=AsyncMock()))
                     result = await tool_generate_content(
                         brief=EDUCATIONAL_BRIEF, platform="linkedin", tenant_id="t"
                     )

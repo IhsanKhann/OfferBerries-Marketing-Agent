@@ -260,8 +260,12 @@ async def list_runs(
     query: dict = {"tenant_id": _tenant_id()}
     if status:
         query["overall_status"] = status
-    cursor = db["agent_runs"].find(query, {"state_snapshot": 0}).sort("created_at", -1).limit(limit)
-    docs = await cursor.to_list(length=limit)
+    try:
+        cursor = db["agent_runs"].find(query, {"state_snapshot": 0}).sort("created_at", -1).limit(limit)
+        docs = await cursor.to_list(length=limit)
+    except Exception as exc:
+        logger.error("list_runs DB error: %s", exc)
+        raise HTTPException(status_code=503, detail="Database unavailable") from exc
     for doc in docs:
         doc["id"] = str(doc.pop("_id"))
         for k in ("created_at", "updated_at"):
@@ -492,6 +496,97 @@ async def estimate_run_cost(
         "platforms": req.platforms,
         "estimated_total_usd": round(total_usd, 6),
         "breakdown": breakdown,
+    }
+
+
+# ── D3: Visual regeneration ────────────────────────────────────────────────
+
+MCP_SERVER_URL = os.getenv("MCP_SERVER_URL", "http://mcp-server:8000")
+
+
+class RegenerateVisualRequest(BaseModel):
+    platform: str
+    additional_instructions: str = ""
+    source: str = "fal"
+
+
+import httpx as _httpx
+
+
+async def _mcp_call(tool_name: str, arguments: dict) -> dict:
+    """Call the MCP server tools/call endpoint."""
+    owner_key = OWNER_KEY or os.getenv("OWNER_API_KEY", "")
+    async with _httpx.AsyncClient(timeout=90) as client:
+        resp = await client.post(
+            f"{MCP_SERVER_URL}/mcp",
+            headers={"X-API-Key": owner_key},
+            json={"method": "tools/call", "params": {"name": tool_name, "arguments": arguments}},
+        )
+        resp.raise_for_status()
+        return resp.json().get("result", {})
+
+
+@app.post("/runs/{run_id}/visual/regenerate")
+async def regenerate_visual(
+    run_id: str,
+    req: RegenerateVisualRequest,
+    x_api_key: Optional[str] = Header(None),
+):
+    """Regenerate a visual for a specific platform using an updated brief."""
+    _require_owner(x_api_key)
+    if not db:
+        raise HTTPException(status_code=503, detail="Database not available")
+
+    doc = await db["agent_runs"].find_one({"_id": run_id})
+    if not doc:
+        raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+
+    snapshot = doc.get("state_snapshot", {})
+    platform_content = snapshot.get("platform_content", {})
+    visual_assets = snapshot.get("visual_assets", {})
+
+    content = platform_content.get(req.platform)
+    if not content:
+        raise HTTPException(status_code=404, detail=f"No content found for platform {req.platform}")
+
+    existing_brief = snapshot.get("visual_briefs", {}).get(req.platform, {})
+    if req.additional_instructions:
+        existing_brief["color_directive"] = (
+            (existing_brief.get("color_directive") or "") + " " + req.additional_instructions
+        ).strip()
+
+    try:
+        result = await _mcp_call("generate_visual", {
+            "content": content,
+            "template_id": f"{req.platform}-default",
+            "source": req.source,
+            "visual_brief": existing_brief or None,
+            "__run_id": run_id,
+        })
+    except Exception as exc:
+        logger.error("[%s] Visual regeneration failed: %s", run_id, exc)
+        raise HTTPException(status_code=502, detail=f"Visual generation failed: {exc}")
+
+    history_entry = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "platform": req.platform,
+        "instructions": req.additional_instructions,
+        "visual_url": result.get("url", ""),
+        "source": req.source,
+    }
+
+    await db["agent_runs"].update_one(
+        {"_id": run_id},
+        {
+            "$set": {f"state_snapshot.visual_assets.{req.platform}": result},
+            "$push": {"visual_regeneration_history": history_entry},
+        },
+    )
+
+    return {
+        "visual_url": result.get("url", ""),
+        "platform": req.platform,
+        "history_entry": history_entry,
     }
 
 

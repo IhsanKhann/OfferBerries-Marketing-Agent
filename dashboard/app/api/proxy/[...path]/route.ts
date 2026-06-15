@@ -56,11 +56,20 @@ async function proxyRequest(request: NextRequest, path: string[]) {
     }
   }
 
-  const upstream = await fetch(url.toString(), {
-    method: request.method,
-    headers,
-    body,
-  });
+  let upstream: Response;
+  try {
+    upstream = await fetch(url.toString(), {
+      method: request.method,
+      headers,
+      body,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return NextResponse.json(
+      { error: 'Upstream service unavailable', detail: message, url: url.hostname },
+      { status: 502 },
+    );
+  }
 
   const contentType = upstream.headers.get('Content-Type') || 'application/json';
 

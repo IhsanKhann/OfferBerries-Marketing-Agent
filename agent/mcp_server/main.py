@@ -72,6 +72,31 @@ async def startup():
     mongo_client = AsyncIOMotorClient(os.environ["MONGODB_URI"])
     db = mongo_client[os.environ["MONGODB_DB"]]
     redis_client = aioredis.from_url(os.environ["REDIS_URL"], decode_responses=True)
+    await _seed_research_models()
+
+
+async def _seed_research_models() -> None:
+    """Seed research_models collection on first boot if empty."""
+    if db is None:
+        return
+    count = await db["research_models"].count_documents({})
+    if count == 0:
+        await db["research_models"].insert_many(RESEARCH_MODELS_SEED)
+        logger.info("Seeded %d research models", len(RESEARCH_MODELS_SEED))
+
+
+async def _seed_voice_profiles_for_tenant(tenant_id: str) -> None:
+    """Seed default voice profiles for a tenant if they have none."""
+    count = await db["voice_profiles"].count_documents({"tenant_id": tenant_id})
+    if count == 0:
+        now = datetime.now(timezone.utc)
+        docs = [
+            {**p, "id": str(uuid.uuid4()), "tenant_id": tenant_id, "is_active": True, "created_at": now}
+            for p in DEFAULT_VOICE_PROFILES
+        ]
+        await db["voice_profiles"].insert_many(docs)
+        logger.info("Seeded %d voice profiles for tenant %s", len(docs), tenant_id)
+
 
 @app.on_event("shutdown")
 async def shutdown():
@@ -243,6 +268,55 @@ class VoiceProfile(BaseModel):
     example_ctas: list[str] = []
 
 
+class VoiceProfileDoc(BaseModel):
+    id: str = ""
+    tenant_id: str = ""
+    name: str
+    is_default: bool = False
+    system_prompt: Optional[str] = None
+    hashtag_style: str = "contextual"   # branded|contextual|educational|discovery
+    cta_type: str = "contextual"        # demo|learn_more|engagement|contextual
+    tone: str = "adaptive"
+    is_active: bool = True
+
+
+class VoiceProfileCreateRequest(BaseModel):
+    name: str
+    system_prompt: Optional[str] = None
+    hashtag_style: str = "contextual"
+    cta_type: str = "contextual"
+    tone: str = "adaptive"
+    is_default: bool = False
+
+
+class VoiceProfileUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    system_prompt: Optional[str] = None
+    hashtag_style: Optional[str] = None
+    cta_type: Optional[str] = None
+    tone: Optional[str] = None
+    is_default: Optional[bool] = None
+    is_active: Optional[bool] = None
+
+
+class ResearchModel(BaseModel):
+    id: str
+    display_name: str
+    provider: str = "perplexity"
+    cost_usd_per_call: float
+    credits_per_call: int
+    tier_required: str   # free|starter|pro
+    is_active: bool = True
+
+
+class ResearchModelPatch(BaseModel):
+    display_name: Optional[str] = None
+    cost_usd_per_call: Optional[float] = None
+    credits_per_call: Optional[int] = None
+    tier_required: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
 class VisualBrief(BaseModel):
     headline: str = ""
     subtext: str = ""
@@ -256,7 +330,58 @@ class TemplateDoc(BaseModel):
     name: str
     platform: str
     thumbnail_url: str = ""
+    preview_url: str = ""
     is_default: bool = False
+    layout_tags: list[str] = []
+    html_content: str = ""
+    variables: list[str] = []
+
+
+class TemplateUploadRequest(BaseModel):
+    template_id: str
+    name: str
+    platform: str
+    html_content: str
+    thumbnail_url: str = ""
+    layout_tags: list[str] = []
+
+
+# ── Seed data ──────────────────────────────────────────────────────────────
+
+RESEARCH_MODELS_SEED: list[dict] = [
+    {
+        "id": "sonar", "display_name": "Sonar (Standard)", "provider": "perplexity",
+        "cost_usd_per_call": 0.0014, "credits_per_call": 1, "tier_required": "free", "is_active": True,
+    },
+    {
+        "id": "sonar-pro", "display_name": "Sonar Pro", "provider": "perplexity",
+        "cost_usd_per_call": 0.004, "credits_per_call": 4, "tier_required": "starter", "is_active": True,
+    },
+    {
+        "id": "sonar-deep-research", "display_name": "Deep Research", "provider": "perplexity",
+        "cost_usd_per_call": 0.056, "credits_per_call": 56, "tier_required": "pro", "is_active": True,
+    },
+]
+
+DEFAULT_VOICE_PROFILES: list[dict] = [
+    {
+        "name": "General / Adaptive", "is_default": True,
+        "system_prompt": None, "hashtag_style": "contextual", "cta_type": "contextual", "tone": "adaptive",
+    },
+    {
+        "name": "OfferBerries Official", "is_default": False,
+        "system_prompt": (
+            "You are writing for OfferBerries, a Pakistani B2B SaaS company. "
+            "Be professional, honest, and direct. Focus on real ROI for SMBs. "
+            "Never use corporate buzzwords."
+        ),
+        "hashtag_style": "branded", "cta_type": "demo", "tone": "professional",
+    },
+]
+
+TIER_ORDER: dict[str, int] = {"free": 0, "starter": 1, "pro": 2}
+HASHTAG_STYLE_VALUES = {"branded", "contextual", "educational", "discovery"}
+CTA_TYPE_VALUES = {"demo", "learn_more", "engagement", "contextual"}
 
 
 # ── Platform dimension map ─────────────────────────────────────────────────
@@ -458,6 +583,103 @@ async def tool_scrape_competitor(platform: str, handle: str, limit: int = 20) ->
     ]
 
 
+def build_content_prompt(
+    topic_str: str,
+    angles: list,
+    pain_points: list,
+    hooks: list,
+    platform: str,
+    product: str,
+    voice: Optional[VoiceProfileDoc],
+    extra_context: str = "",
+) -> tuple[str, str]:
+    """Return (system_prompt, user_prompt) using voice profile enums."""
+    char_limit = PLATFORM_CHAR_LIMITS.get(platform, 1300)
+
+    hashtag_style_rules: dict[str, str] = {
+        "branded": "Use OfferBerries brand hashtags + 2-3 niche topic-specific tags.",
+        "contextual": "Mix 2 broad professional + 2-3 niche topic-specific hashtags. Contextual to post.",
+        "educational": "Use educational/how-to hashtags: #TipsFor{topic}, #LearnAbout, etc.",
+        "discovery": "Use high-volume discovery hashtags (reach > niche). Max 10 on Instagram, 3 elsewhere.",
+    }
+    cta_type_rules: dict[str, str] = {
+        "demo": "End with a clear product demo CTA: 'Book a free demo', 'Start your free trial'.",
+        "learn_more": "End with 'Learn more', 'Read the full guide', or link to a resource.",
+        "engagement": "End with an engagement question to spark comments. No product push.",
+        "contextual": (
+            "Pick the most appropriate CTA: educational → question/link; "
+            "pain-point → 'See how we solve this'; product pitch → 'Book a demo'."
+        ),
+    }
+
+    hs = (voice.hashtag_style if voice else "contextual") or "contextual"
+    ct = (voice.cta_type if voice else "contextual") or "contextual"
+    hashtag_rule = hashtag_style_rules.get(hs, hashtag_style_rules["contextual"])
+    cta_rule = cta_type_rules.get(ct, cta_type_rules["contextual"])
+
+    platform_instructions: dict[str, str] = {
+        "linkedin": f"Professional, insight-driven, educational tone. End with a question. Max {char_limit} chars.",
+        "twitter": "Punchy, opinionated. Use line breaks. Max 4 tweets at 280 chars each. Thread format.",
+        "instagram": "Visual-first caption, story-driven.",
+        "youtube": "60-second script. Hook in first 3 seconds. Problem→Solution→CTA.",
+        "email": "Subject line + 150-word body. One CTA link.",
+    }
+
+    if voice and voice.system_prompt:
+        system_prompt = voice.system_prompt
+    else:
+        tone = voice.tone if voice else "professional"
+        system_prompt = (
+            f"You write social media content for Pakistani SMBs. Tone: {tone}. "
+            "Be honest and direct. Avoid corporate buzzwords."
+        )
+
+    user_prompt = (
+        f"Platform: {platform}\n"
+        f"Platform instructions: {platform_instructions.get(platform, '')}\n"
+        f"Topic: {topic_str}\n"
+        f"Trending angles: {angles}\n"
+        f"Pain points: {pain_points}\n"
+        f"Suggested hooks: {hooks}\n"
+        f"Product: {product}\n"
+        + (f"Extra context: {extra_context}\n" if extra_context else "")
+        + f"\nHashtag rules: {hashtag_rule}\n"
+        f"CTA rules: {cta_rule}\n\n"
+        "Return your response as valid JSON with exactly this structure (no markdown, no extra keys):\n"
+        '{\n'
+        '    "copy": "the full social media post copy here (no hashtags inline — keep them separate)",\n'
+        '    "hashtags": ["#TopicHashtag1", "#TopicHashtag2"],\n'
+        '    "cta": "the call to action text"\n'
+        '}'
+    )
+    return system_prompt, user_prompt
+
+
+def build_flux_prompt(visual_brief: VisualBrief, platform: str, brand_colors: Optional[list[str]] = None) -> str:
+    """Build a detailed Flux image generation prompt from a visual brief."""
+    colors = brand_colors or ["#4F46E5 indigo", "#FFFFFF white"]
+    color_str = ", ".join(colors[:3])
+    negative = (
+        "ugly, blurry, watermark, text errors, cluttered, stock photo, people, faces, "
+        "low quality, distorted, nsfw"
+    )
+    dims = PLATFORM_DIMS.get(platform, (1080, 1080))
+    aspect = "square" if dims[0] == dims[1] else "landscape 16:9"
+
+    prompt = (
+        f"Professional {visual_brief.layout_hint} social media graphic, {aspect} format. "
+        f'Large headline text: "{visual_brief.headline}". '
+        f'Supporting text: "{visual_brief.subtext}". '
+        f"Color palette: {color_str}. "
+        f"{visual_brief.color_directive}. "
+        f"Style: {visual_brief.visual_mood}. "
+        "Clean modern corporate design. Minimalist. No stock photos. No random people. "
+        f"Optimised for {platform}. "
+        f"NEGATIVE PROMPT — exclude: {negative}."
+    )
+    return prompt
+
+
 async def tool_generate_content(
     brief: ResearchBrief,
     platform: str,
@@ -467,54 +689,27 @@ async def tool_generate_content(
     run_id: str = "",
 ) -> dict:
     openrouter_key = os.getenv("OPENROUTER_API_KEY", "")
-
-    # Load VoiceProfile (structured) from MongoDB, fall back to plain brand_voice, then file
-    voice_profile: Optional[VoiceProfile] = None
-    brand_voice = ""
-    if tenant_id:
-        vp_doc = await db["configs"].find_one({"tenant_id": tenant_id, "key": "voice_profile"}, {"_id": 0})
-        if vp_doc and isinstance(vp_doc.get("value"), dict):
-            try:
-                voice_profile = VoiceProfile(**vp_doc["value"])
-            except Exception:
-                pass
-        if not voice_profile:
-            bv_doc = await db["configs"].find_one({"tenant_id": tenant_id, "key": "brand_voice"}, {"_id": 0})
-            if bv_doc:
-                brand_voice = bv_doc.get("value", "")
-    if not voice_profile and not brand_voice:
-        try:
-            with open("/app/config/brand_voice.md") as f:
-                brand_voice = f.read()
-        except FileNotFoundError:
-            brand_voice = "Write honest, direct content for Pakistani SMBs. No corporate buzzwords."
-
-    # Build system prompt from VoiceProfile or fall back to brand voice string
-    if voice_profile:
-        avoid = ", ".join(f'"{p}"' for p in voice_profile.avoid_phrases) if voice_profile.avoid_phrases else "none"
-        platform_extra = voice_profile.platform_overrides.get(platform, "")
-        brand_voice = (
-            f"Tone: {voice_profile.tone}.\n"
-            f"{voice_profile.personality}\n"
-            f"Writing style: {voice_profile.writing_style}\n"
-            f"Avoid phrases: {avoid}\n"
-            + (f"Extra for {platform}: {platform_extra}\n" if platform_extra else "")
-        ).strip()
-
-    char_limit = PLATFORM_CHAR_LIMITS.get(platform, 1300)
-    platform_instructions = {
-        "linkedin": f"Professional, insight-driven, educational tone. End with a question. Max {char_limit} characters.",
-        "twitter": "Punchy, opinionated. Use line breaks. Max 4 tweets at 280 chars each. Thread format.",
-        "instagram": "Visual-first caption, story-driven. 3-5 hashtags only.",
-        "youtube": "60-second script. Hook in first 3 seconds. Problem→Solution→CTA.",
-        "email": "Subject line + 150-word body. One CTA link.",
-    }
-
     if not openrouter_key:
-        # No key — return empty rather than fake data so callers know generation failed
         logger.warning("OPENROUTER_API_KEY not set — content generation unavailable")
         raise HTTPException(status_code=503, detail="Content generation API key not configured")
 
+    # Load active VoiceProfileDoc from voice_profiles collection (default profile)
+    voice_doc: Optional[VoiceProfileDoc] = None
+    if tenant_id:
+        await _seed_voice_profiles_for_tenant(tenant_id)
+        vp_raw = await db["voice_profiles"].find_one(
+            {"tenant_id": tenant_id, "is_default": True, "is_active": True}
+        )
+        if not vp_raw:
+            vp_raw = await db["voice_profiles"].find_one({"tenant_id": tenant_id, "is_active": True})
+        if vp_raw:
+            vp_raw.pop("_id", None)
+            try:
+                voice_doc = VoiceProfileDoc(**vp_raw)
+            except Exception:
+                pass
+
+    char_limit = PLATFORM_CHAR_LIMITS.get(platform, 1300)
     actual_model = "anthropic/claude-sonnet-4-6" if model == "premium" else model
 
     topic_str = brief.topic if isinstance(brief, ResearchBrief) else brief.get("topic", "")
@@ -522,46 +717,10 @@ async def tool_generate_content(
     pain_points = brief.pain_points if isinstance(brief, ResearchBrief) else brief.get("pain_points", [])
     hooks = brief.suggested_hooks if isinstance(brief, ResearchBrief) else brief.get("suggested_hooks", [])
 
-    hashtag_rules = {
-        "linkedin": "3–5 hashtags: mix 2 broad professional + 2–3 niche topic-specific. No more than 5 total.",
-        "twitter": "2–4 hashtags only. Short and trending.",
-        "instagram": "7–10 hashtags: mix broad discovery + niche topic + location-relevant.",
-        "youtube": "3–5 hashtags for the description.",
-        "email": "No hashtags.",
-    }.get(platform, "3–5 topic-relevant hashtags.")
-
-    cta_rules = (
-        "Generate the most appropriate CTA for this content type:\n"
-        "- Educational/how-to content → 'Learn more', 'Read the guide', or an engagement question\n"
-        "- Pain-point content → 'See how we solve this', 'Fix this today'\n"
-        "- Product announcement → 'Read the full story', 'See what's new'\n"
-        "- Explicit product pitch → 'Book a free demo', 'Start your free trial'\n"
-        "Do NOT default to a demo CTA unless the content is explicitly pitching a product."
+    system_prompt, user_prompt = build_content_prompt(
+        topic_str=topic_str, angles=angles, pain_points=pain_points, hooks=hooks,
+        platform=platform, product=product, voice=voice_doc,
     )
-
-    user_prompt = f"""Platform: {platform}
-Platform instructions: {platform_instructions.get(platform, '')}
-Topic: {topic_str}
-Trending angles: {angles}
-Pain points: {pain_points}
-Suggested hooks: {hooks}
-Product: {product}
-
-Hashtag rules: {hashtag_rules}
-Hashtag content requirements:
-- Specific to the topic — not generic brand tags
-- Pakistan SMB context where naturally relevant, not forced
-- Mix broad (reach) and niche (relevance) tags
-
-CTA rules:
-{cta_rules}
-
-Return your response as valid JSON with exactly this structure (no markdown, no extra keys):
-{{
-    "copy": "the full social media post copy here (no hashtags inline — keep them separate)",
-    "hashtags": ["#TopicHashtag1", "#TopicHashtag2"],
-    "cta": "the call to action text"
-}}"""
 
     async with httpx.AsyncClient(timeout=60) as client:
         resp = await client.post(
@@ -571,7 +730,7 @@ Return your response as valid JSON with exactly this structure (no markdown, no 
                 "model": actual_model,
                 "max_tokens": 1200,
                 "messages": [
-                    {"role": "system", "content": brand_voice},
+                    {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
             },
@@ -783,11 +942,7 @@ async def tool_generate_visual(
         fal_key = os.getenv("FAL_API_KEY", "")
         size_map = {"linkedin": "square_hd", "twitter": "landscape_16_9", "instagram": "square_hd", "youtube": "landscape_16_9"}
         if vb and vb.headline:
-            flux_prompt = (
-                f"Professional {vb.layout_hint} card for {platform}. "
-                f'Text: "{vb.headline}". {vb.color_directive}. '
-                f"Style: {vb.visual_mood}. Clean modern corporate design. No stock photos."
-            )
+            flux_prompt = build_flux_prompt(vb, platform)
         else:
             flux_prompt = f"Professional social media graphic: {copy[:200]}"
         async with httpx.AsyncClient(timeout=90) as client:
@@ -1580,3 +1735,252 @@ async def delete_template(
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Template not found")
     return {"deleted": True}
+
+
+# ── D2: Template upload + preview ──────────────────────────────────────────
+
+_VAR_RE = re.compile(r"\{\{(\w+)\}\}")
+
+
+@app.post("/config/templates/upload", status_code=201)
+async def upload_template(
+    req: TemplateUploadRequest,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Upload an HTML template; auto-extracts {{variable}} placeholders."""
+    tenant = await get_tenant(x_api_key, authorization)
+    variables = list(dict.fromkeys(_VAR_RE.findall(req.html_content)))  # unique, ordered
+    doc = {
+        "template_id": req.template_id,
+        "name": req.name,
+        "platform": req.platform,
+        "thumbnail_url": req.thumbnail_url,
+        "preview_url": "",
+        "is_default": False,
+        "layout_tags": req.layout_tags,
+        "html_content": req.html_content,
+        "variables": variables,
+        "tenant_id": tenant.tenant_id,
+        "created_at": datetime.now(timezone.utc),
+    }
+    await db["templates"].update_one(
+        {"tenant_id": tenant.tenant_id, "template_id": req.template_id},
+        {"$set": doc},
+        upsert=True,
+    )
+    return {"saved": True, "template_id": req.template_id, "variables": variables}
+
+
+@app.post("/config/templates/{template_id}/preview")
+async def preview_template(
+    template_id: str,
+    variables: dict = {},
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Render a template preview PNG by injecting variable values."""
+    tenant = await get_tenant(x_api_key, authorization)
+    doc = await db["templates"].find_one(
+        {"tenant_id": tenant.tenant_id, "template_id": template_id}, {"_id": 0}
+    )
+    if not doc:
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    html = doc.get("html_content", "")
+    for k, v in variables.items():
+        html = html.replace("{{" + k + "}}", str(v))
+
+    import base64
+    renderer_url = os.getenv("RENDERER_URL", "http://renderer:3001")
+    html_b64 = base64.b64encode(html.encode()).decode()
+    async with httpx.AsyncClient(timeout=60) as client:
+        resp = await client.post(
+            f"{renderer_url}/render",
+            json={"template_id": "_od_html_", "content_data": {"__html_b64": html_b64}, "width": 1080, "height": 1080},
+        )
+        if resp.status_code != 200:
+            raise HTTPException(status_code=502, detail="Renderer failed")
+        filename = resp.headers.get("x-output-filename", f"{uuid.uuid4()}.png")
+
+    preview_url = _renderer_public_url(filename, renderer_url)
+    await db["templates"].update_one(
+        {"tenant_id": tenant.tenant_id, "template_id": template_id},
+        {"$set": {"preview_url": preview_url, "updated_at": datetime.now(timezone.utc)}},
+    )
+    return {"preview_url": preview_url, "template_id": template_id}
+
+
+# ── C1: Research models collection ────────────────────────────────────────
+
+@app.get("/research-models")
+async def list_research_models(
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """User-facing: return active models allowed for tenant's tier."""
+    tenant = await get_tenant(x_api_key, authorization)
+    tier = tenant.tier if tenant.tier != "owner" else "pro"
+    tier_level = TIER_ORDER.get(tier, 2)
+    cursor = db["research_models"].find({"is_active": True}, {"_id": 0})
+    models = await cursor.to_list(length=50)
+    if not models:
+        models = RESEARCH_MODELS_SEED
+    allowed = [m for m in models if TIER_ORDER.get(m.get("tier_required", "free"), 0) <= tier_level]
+    return allowed
+
+
+@app.get("/admin/research-models")
+async def admin_list_research_models(
+    x_api_key: Optional[str] = Header(None),
+):
+    _require_owner(x_api_key)
+    cursor = db["research_models"].find({}, {"_id": 0})
+    models = await cursor.to_list(length=50)
+    return models or RESEARCH_MODELS_SEED
+
+
+@app.post("/admin/research-models", status_code=201)
+async def admin_create_research_model(
+    req: ResearchModel,
+    x_api_key: Optional[str] = Header(None),
+):
+    _require_owner(x_api_key)
+    if req.tier_required not in TIER_ORDER:
+        raise HTTPException(status_code=400, detail=f"Invalid tier_required: {req.tier_required}")
+    doc = {**req.model_dump(), "created_at": datetime.now(timezone.utc)}
+    await db["research_models"].update_one({"id": req.id}, {"$set": doc}, upsert=True)
+    return {"saved": True, "id": req.id}
+
+
+@app.patch("/admin/research-models/{model_id}")
+async def admin_patch_research_model(
+    model_id: str,
+    req: ResearchModelPatch,
+    x_api_key: Optional[str] = Header(None),
+):
+    _require_owner(x_api_key)
+    updates = {k: v for k, v in req.model_dump().items() if v is not None}
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    if "tier_required" in updates and updates["tier_required"] not in TIER_ORDER:
+        raise HTTPException(status_code=400, detail=f"Invalid tier_required: {updates['tier_required']}")
+    updates["updated_at"] = datetime.now(timezone.utc)
+    result = await db["research_models"].update_one({"id": model_id}, {"$set": updates})
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Research model not found")
+    return {"updated": True, "id": model_id}
+
+
+# ── C2: Voice profiles CRUD ────────────────────────────────────────────────
+
+def _require_owner(x_api_key: Optional[str]):
+    owner_key = os.getenv("OWNER_API_KEY", "")
+    if not owner_key or x_api_key != owner_key:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+
+@app.get("/voice-profiles")
+async def list_voice_profiles(
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    tenant = await get_tenant(x_api_key, authorization)
+    await _seed_voice_profiles_for_tenant(tenant.tenant_id)
+    cursor = db["voice_profiles"].find(
+        {"tenant_id": tenant.tenant_id, "is_active": True}, {"_id": 0}
+    ).sort("name", 1)
+    profiles = await cursor.to_list(length=100)
+    return profiles
+
+
+@app.post("/voice-profiles", status_code=201)
+async def create_voice_profile(
+    req: VoiceProfileCreateRequest,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    tenant = await get_tenant(x_api_key, authorization)
+    if req.hashtag_style not in HASHTAG_STYLE_VALUES:
+        raise HTTPException(status_code=400, detail=f"Invalid hashtag_style: {req.hashtag_style}")
+    if req.cta_type not in CTA_TYPE_VALUES:
+        raise HTTPException(status_code=400, detail=f"Invalid cta_type: {req.cta_type}")
+    profile_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc)
+    if req.is_default:
+        await db["voice_profiles"].update_many(
+            {"tenant_id": tenant.tenant_id}, {"$set": {"is_default": False}}
+        )
+    doc = {
+        **req.model_dump(), "id": profile_id,
+        "tenant_id": tenant.tenant_id, "is_active": True, "created_at": now,
+    }
+    await db["voice_profiles"].insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+
+@app.patch("/voice-profiles/{profile_id}")
+async def update_voice_profile(
+    profile_id: str,
+    req: VoiceProfileUpdateRequest,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    tenant = await get_tenant(x_api_key, authorization)
+    updates = {k: v for k, v in req.model_dump().items() if v is not None}
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    if "hashtag_style" in updates and updates["hashtag_style"] not in HASHTAG_STYLE_VALUES:
+        raise HTTPException(status_code=400, detail=f"Invalid hashtag_style: {updates['hashtag_style']}")
+    if "cta_type" in updates and updates["cta_type"] not in CTA_TYPE_VALUES:
+        raise HTTPException(status_code=400, detail=f"Invalid cta_type: {updates['cta_type']}")
+    updates["updated_at"] = datetime.now(timezone.utc)
+    result = await db["voice_profiles"].update_one(
+        {"id": profile_id, "tenant_id": tenant.tenant_id}, {"$set": updates}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Voice profile not found")
+    return {"updated": True, "id": profile_id}
+
+
+@app.delete("/voice-profiles/{profile_id}")
+async def delete_voice_profile(
+    profile_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    tenant = await get_tenant(x_api_key, authorization)
+    doc = await db["voice_profiles"].find_one(
+        {"id": profile_id, "tenant_id": tenant.tenant_id}, {"is_default": 1}
+    )
+    if not doc:
+        raise HTTPException(status_code=404, detail="Voice profile not found")
+    if doc.get("is_default"):
+        raise HTTPException(status_code=400, detail="Cannot delete the default voice profile")
+    await db["voice_profiles"].update_one(
+        {"id": profile_id, "tenant_id": tenant.tenant_id},
+        {"$set": {"is_active": False, "deleted_at": datetime.now(timezone.utc)}},
+    )
+    return {"deleted": True, "id": profile_id}
+
+
+@app.patch("/voice-profiles/{profile_id}/set-default")
+async def set_default_voice_profile(
+    profile_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    tenant = await get_tenant(x_api_key, authorization)
+    doc = await db["voice_profiles"].find_one(
+        {"id": profile_id, "tenant_id": tenant.tenant_id, "is_active": True}
+    )
+    if not doc:
+        raise HTTPException(status_code=404, detail="Voice profile not found")
+    await db["voice_profiles"].update_many(
+        {"tenant_id": tenant.tenant_id}, {"$set": {"is_default": False}}
+    )
+    await db["voice_profiles"].update_one(
+        {"id": profile_id}, {"$set": {"is_default": True, "updated_at": datetime.now(timezone.utc)}}
+    )
+    return {"default_set": True, "id": profile_id}

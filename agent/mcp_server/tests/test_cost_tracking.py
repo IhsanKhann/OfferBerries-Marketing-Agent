@@ -131,6 +131,8 @@ class TestGenerateContentCostCapture:
         mock_coll = MagicMock()
         mock_coll.insert_one = AsyncMock()
         mock_coll.find_one = AsyncMock(return_value=None)
+        mock_coll.count_documents = AsyncMock(return_value=1)  # skip seeding
+        mock_coll.insert_many = AsyncMock()
         mock_db = MagicMock()
         mock_db.__getitem__ = MagicMock(return_value=mock_coll)
         main.db = mock_db
