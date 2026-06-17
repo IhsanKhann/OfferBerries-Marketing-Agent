@@ -1,0 +1,1016 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OfferBerries Finance — Architecture Map</title>
+<style>
+  :root{
+    --bg: #0F1419;
+    --panel: #161D24;
+    --panel2: #1E2730;
+    --line: #2A3540;
+    --line-soft: #232D36;
+    --text: #E8ECEF;
+    --text-dim: #8A98A6;
+    --text-faint: #5C6975;
+
+    --teal: #1D9E75;
+    --teal-soft: rgba(29,158,117,0.14);
+    --amber: #BA7517;
+    --amber-soft: rgba(186,117,23,0.14);
+    --coral: #D85A30;
+    --coral-soft: rgba(216,90,48,0.14);
+    --blue: #378ADD;
+    --blue-soft: rgba(55,138,221,0.14);
+    --purple: #7F77DD;
+    --purple-soft: rgba(127,119,221,0.14);
+
+    --mono: 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
+    --sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  }
+
+  *{ box-sizing: border-box; margin:0; padding:0; }
+
+  body{
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+  }
+
+  /* ===== Header ===== */
+  header{
+    border-bottom: 1px solid var(--line);
+    padding: 20px 28px;
+    display:flex;
+    align-items:center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 16px;
+    position: sticky;
+    top:0;
+    background: rgba(15,20,25,0.92);
+    backdrop-filter: blur(8px);
+    z-index: 50;
+  }
+  .brand{
+    display:flex;
+    align-items:baseline;
+    gap:10px;
+  }
+  .brand .name{
+    font-size: 17px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  .brand .tag{
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .legend{
+    display:flex;
+    gap: 18px;
+    font-size: 12px;
+    color: var(--text-dim);
+    flex-wrap: wrap;
+  }
+  .legend span{
+    display:flex;
+    align-items:center;
+    gap:6px;
+  }
+  .dot{
+    width:9px; height:9px; border-radius:3px; display:inline-block;
+  }
+  .dot.built{ background: var(--teal); }
+  .dot.partial{ background: var(--amber); }
+  .dot.missing{ background: var(--coral); }
+
+  /* ===== Layout ===== */
+  .layout{
+    display:grid;
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+
+  .scenario-bar{
+    border-bottom: 1px solid var(--line);
+    padding: 14px 28px;
+    display:flex;
+    align-items:center;
+    gap: 12px;
+    flex-wrap: wrap;
+    background: var(--panel);
+  }
+  .scenario-bar .label{
+    font-size:12px;
+    color: var(--text-dim);
+    font-family: var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-right: 6px;
+  }
+  .scenario-btn{
+    background: var(--panel2);
+    border: 1px solid var(--line);
+    color: var(--text);
+    font-size: 13px;
+    padding: 8px 14px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: border-color .15s, background .15s, color .15s;
+    font-family: var(--sans);
+  }
+  .scenario-btn:hover{
+    border-color: var(--blue);
+    color: var(--blue);
+  }
+  .scenario-btn.active{
+    background: var(--blue-soft);
+    border-color: var(--blue);
+    color: #BFDBFF;
+  }
+  .scenario-btn.reset{
+    margin-left: auto;
+    color: var(--text-faint);
+    border-color: transparent;
+  }
+  .scenario-btn.reset:hover{
+    color: var(--coral);
+    border-color: transparent;
+    background: transparent;
+  }
+
+  .main{
+    display:grid;
+    grid-template-columns: 1fr;
+    position: relative;
+  }
+
+  @media (min-width: 980px){
+    .main{
+      grid-template-columns: 1fr 360px;
+    }
+  }
+
+  .canvas-wrap{
+    padding: 28px;
+    overflow-x: auto;
+  }
+
+  .canvas-inner{
+    min-width: 920px;
+  }
+
+  /* ===== Side panel ===== */
+  .side{
+    border-left: 1px solid var(--line);
+    padding: 28px 24px;
+    position: sticky;
+    top: 130px;
+    align-self: start;
+    max-height: calc(100vh - 130px);
+    overflow-y: auto;
+  }
+  .side h2{
+    font-size: 16px;
+    font-weight: 600;
+    margin-bottom: 4px;
+    letter-spacing: -0.01em;
+  }
+  .side .status-pill{
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    font-size: 11px;
+    font-family: var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding: 3px 8px;
+    border-radius: 5px;
+    margin: 10px 0 16px;
+  }
+  .status-pill.built{ background: var(--teal-soft); color: var(--teal); }
+  .status-pill.partial{ background: var(--amber-soft); color: var(--amber); }
+  .status-pill.missing{ background: var(--coral-soft); color: var(--coral); }
+
+  .side .section{
+    margin-bottom: 18px;
+  }
+  .side .section-label{
+    font-size: 11px;
+    color: var(--text-faint);
+    font-family: var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 8px;
+  }
+  .side p{
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--text-dim);
+  }
+  .side ul{
+    list-style: none;
+    font-size: 13px;
+    line-height: 1.7;
+    color: var(--text-dim);
+  }
+  .side ul li{
+    padding-left: 14px;
+    position: relative;
+  }
+  .side ul li::before{
+    content: '–';
+    position: absolute;
+    left: 0;
+    color: var(--text-faint);
+  }
+  .journal{
+    font-family: var(--mono);
+    font-size: 12px;
+    background: var(--panel2);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 12px 14px;
+    line-height: 1.8;
+    color: var(--text-dim);
+    overflow-x: auto;
+    white-space: pre;
+  }
+  .journal .dr{ color: var(--teal); }
+  .journal .cr{ color: var(--blue); }
+  .side .placeholder{
+    color: var(--text-faint);
+    font-size: 13px;
+    line-height: 1.7;
+  }
+  .side .placeholder .arrow-hint{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    margin-bottom: 14px;
+    color: var(--text-faint);
+  }
+
+  /* ===== SVG Diagram ===== */
+  svg{ display:block; width: 100%; height: auto; overflow: visible; }
+
+  .node-rect{
+    fill: var(--panel2);
+    stroke: var(--line);
+    stroke-width: 1;
+    transition: stroke .15s, fill .15s;
+    cursor: pointer;
+  }
+  .node-group:hover .node-rect{
+    stroke: var(--blue);
+  }
+  .node-group.selected .node-rect{
+    stroke: var(--blue);
+    stroke-width: 1.5;
+  }
+
+  .node-rect.built{ fill: var(--teal-soft); }
+  .node-rect.partial{ fill: var(--amber-soft); }
+  .node-rect.missing{ fill: var(--coral-soft); }
+
+  .node-rect.built.selected, .node-group.selected .node-rect.built{ stroke: var(--teal); }
+  .node-rect.partial.selected, .node-group.selected .node-rect.partial{ stroke: var(--amber); }
+  .node-rect.missing.selected, .node-group.selected .node-rect.missing{ stroke: var(--coral); }
+
+  .node-title{
+    font-size: 13px;
+    font-weight: 600;
+    fill: var(--text);
+    font-family: var(--sans);
+  }
+  .node-sub{
+    font-size: 10.5px;
+    fill: var(--text-dim);
+    font-family: var(--mono);
+  }
+  .node-status{
+    font-size: 9.5px;
+    font-family: var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .node-status.built{ fill: var(--teal); }
+  .node-status.partial{ fill: var(--amber); }
+  .node-status.missing{ fill: var(--coral); }
+
+  .group-label{
+    font-size: 11px;
+    font-family: var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    fill: var(--text-faint);
+  }
+  .group-box{
+    fill: none;
+    stroke: var(--line-soft);
+    stroke-dasharray: 4 4;
+    stroke-width: 1;
+    rx: 14;
+  }
+
+  .conn{
+    fill: none;
+    stroke: var(--line);
+    stroke-width: 1.25;
+  }
+  .conn.dim{
+    opacity: 0.18;
+  }
+  .conn-label{
+    font-size: 9.5px;
+    font-family: var(--mono);
+    fill: var(--text-faint);
+  }
+  .conn-label.dim{ opacity: 0.18; }
+
+  /* token animation */
+  .token{
+    fill: #FFD66B;
+    filter: drop-shadow(0 0 6px rgba(255,214,107,0.7));
+    opacity: 0;
+  }
+
+  .pulse-node{
+    animation: pulseGlow 1s ease-out;
+  }
+  @keyframes pulseGlow{
+    0%{ filter: drop-shadow(0 0 0px rgba(255,214,107,0)); }
+    40%{ filter: drop-shadow(0 0 10px rgba(255,214,107,0.85)); }
+    100%{ filter: drop-shadow(0 0 0px rgba(255,214,107,0)); }
+  }
+
+  /* footer */
+  footer{
+    border-top: 1px solid var(--line);
+    padding: 16px 28px;
+    font-size: 12px;
+    color: var(--text-faint);
+    font-family: var(--mono);
+    display:flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  @media (max-width: 700px){
+    .legend{ display:none; }
+    .canvas-inner{ min-width: 760px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <span class="name">OfferBerries — Finance Architecture</span>
+    <span class="tag">Backend A · Backend B · live map</span>
+  </div>
+  <div class="legend">
+    <span><i class="dot built"></i> Built / functional</span>
+    <span><i class="dot partial"></i> Partial — known gap</span>
+    <span><i class="dot missing"></i> Not built yet</span>
+  </div>
+</header>
+
+<div class="scenario-bar">
+  <span class="label">Trace a scenario</span>
+  <button class="scenario-btn" data-scenario="local-order">Local order arrives</button>
+  <button class="scenario-btn" data-scenario="intl-order">International order</button>
+  <button class="scenario-btn" data-scenario="seller-payout">Seller payout (Process 18)</button>
+  <button class="scenario-btn" data-scenario="refund">Refund to buyer (Process 19)</button>
+  <button class="scenario-btn" data-scenario="dispute">Dispute opened → PDO</button>
+  <button class="scenario-btn reset" data-scenario="reset">Clear trace</button>
+</div>
+
+<div class="main">
+  <div class="canvas-wrap">
+    <div class="canvas-inner">
+      <svg id="diagram" viewBox="0 0 1180 1480" xmlns="http://www.w3.org/2000/svg">
+
+        <!-- ===================== GROUP BOXES ===================== -->
+        <rect class="group-box" x="40" y="40" width="1100" height="120"/>
+        <text class="group-label" x="56" y="64">Backend B — Marketplace (separate domain)</text>
+
+        <rect class="group-box" x="40" y="200" width="1100" height="130"/>
+        <text class="group-label" x="56" y="224">Sync layer — webhooks, HMAC-signed, BullMQ both sides</text>
+
+        <rect class="group-box" x="40" y="370" width="1100" height="260"/>
+        <text class="group-label" x="56" y="394">Backend A — Order, Tax, Commission, Ledger</text>
+
+        <rect class="group-box" x="40" y="660" width="540" height="280"/>
+        <text class="group-label" x="56" y="684">Wallet &amp; Budget layer</text>
+
+        <rect class="group-box" x="600" y="660" width="540" height="280"/>
+        <text class="group-label" x="616" y="684">PDO, Refund, Return, Dispute</text>
+
+        <rect class="group-box" x="40" y="970" width="1100" height="200"/>
+        <text class="group-label" x="56" y="994">Payment layer — obligations, treasury, payouts</text>
+
+        <rect class="group-box" x="40" y="1200" width="540" height="180"/>
+        <text class="group-label" x="56" y="1224">Local provider adapters</text>
+
+        <rect class="group-box" x="600" y="1200" width="540" height="180"/>
+        <text class="group-label" x="616" y="1224">International / FX / Tax</text>
+
+        <rect class="group-box" x="40" y="1410" width="1100" height="60"/>
+        <text class="group-label" x="56" y="1434">External bank rails — real money settles here</text>
+
+        <!-- ===================== CONNECTORS (drawn first, under nodes) ===================== -->
+        <g id="connectors"></g>
+
+        <!-- ===================== NODES ===================== -->
+        <g id="nodes"></g>
+
+        <!-- token for animation -->
+        <circle class="token" id="token" r="6"/>
+
+      </svg>
+    </div>
+  </div>
+
+  <div class="side" id="side">
+    <div class="placeholder" id="side-placeholder">
+      <div class="arrow-hint">
+        <span>→</span><span>Click any box in the diagram to see details</span>
+      </div>
+      <p>This is the full OfferBerries finance architecture: how Backend B (marketplace) talks to Backend A (finance), how the wallet and budget module gate every payout, and how orders, refunds, and disputes flow through the ledger to real bank rails.</p>
+      <br/>
+      <p>Use the scenario buttons above to trace a transaction step by step — each box lights up in sequence as the money (or the bookkeeping entry) moves through the system.</p>
+    </div>
+    <div id="side-content" style="display:none"></div>
+  </div>
+</div>
+
+<footer>
+  <span>10 new models · 12 new services · 7 new COA accounts · 25 new endpoints</span>
+  <span>7 audit fixes (C-1–C-4, H-1, H-8, M-6) must land before activation</span>
+</footer>
+
+<script>
+/* ============================================================
+   NODE DEFINITIONS
+   Each node: id, x, y, w, h, title, sub, status (built/partial/missing)
+   detail: { description, items[], journal (optional) }
+============================================================ */
+const NODES = [
+  // ---------- Backend B ----------
+  {id:'b-storefront', x:60, y:80, w:220, h:60, title:'Storefront & Orders', sub:'order placed, paid, shipped, delivered', status:'built',
+    detail:{
+      desc:'Backend B owns the customer-facing order lifecycle. Every state change here is the trigger for a sync event sent to Backend A.',
+      items:['ORDER_PLACED → hold funds in PDO','ORDER_PAID → move from PDO to order ledger','ORDER_SHIPPED → lock order, update status','ORDER_DELIVERED → start return-window timer']
+    }},
+  {id:'b-entity', x:300, y:80, w:220, h:60, title:'Entity Portal', sub:'docs, defect rate, star grading', status:'built',
+    detail:{
+      desc:'Sellers and shippers submit verification documents here. Backend B also computes defect rate and star rating — Finance only consumes the result.',
+      items:['Sends DEFECT_RATE_UPDATED to Finance','Sends SELLING_LIMIT_CHANGED, ACCOUNT_SUSPENDED, ACCOUNT_RESTORED','Finance never recalculates these — it gates payouts based on the result']
+    }},
+  {id:'b-returns', x:540, y:80, w:220, h:60, title:'Return & Dispute Tracking', sub:'tracking, decisions, appeals', status:'built',
+    detail:{
+      desc:'Full decision tree for returns, exchanges, disputes, and appeals lives in Backend B. Every decision point fires a sync event.',
+      items:['RETURN_REQUESTED, RETURN_ACCEPTED_BY_SELLER, RETURN_REJECTED_BY_SELLER','EXCHANGE_ACCEPTED, EXCHANGE_COMPLETED','DISPUTE_OPENED_*, DISPUTE_DECIDED_*, APPEAL_*']
+    }},
+  {id:'b-dispatcher', x:780, y:80, w:220, h:60, title:'Finance Event Dispatcher', sub:'outbound queue — to build', status:'partial',
+    detail:{
+      desc:'The single new service Backend B needs: turns the 21 lifecycle events into signed HTTP calls to Backend A\'s sync endpoints, with local retry via BullMQ.',
+      items:['POSTs to /finance/sync/order-event, /sync/dispute-event, /sync/seller-event','POSTs to /finance/cancellations/process, /finance/returns/process','Retries with exponential backoff on failure']
+    }},
+
+  // ---------- Sync layer ----------
+  {id:'sync-order', x:60, y:240, w:200, h:60, title:'/sync/order-event', sub:'placed · paid · shipped · delivered', status:'partial',
+    detail:{
+      desc:'Receives order lifecycle events. Currently only /order-process exists (covers ORDER_PLACED roughly) — the other three states are not yet consumed.',
+      items:['ORDER_PAID → unlock funds from gateway settlement wallet','ORDER_SHIPPED → lock order for editing','ORDER_DELIVERED → start return-window countdown']
+    }},
+  {id:'sync-cancel', x:280, y:240, w:200, h:60, title:'/cancellations/process', sub:'15 condition × reason paths', status:'missing',
+    detail:{
+      desc:'Receives cancellation decisions from Backend B. 3 conditions (not shipped within/after handling, already shipped) × up to 5 reasons each.',
+      items:['Paid + accepted → Process 7 (cancel) + Process 19 (refund)','Unpaid + accepted → cancel only, no entry','Rejected → CancellationRecord.addedToPDO = true → Process 9']
+    }},
+  {id:'sync-return', x:500, y:240, w:200, h:60, title:'/returns/process', sub:'accept · reject · exchange', status:'missing',
+    detail:{
+      desc:'Receives return decisions. Seller accept+refund → Process 19. Exchange accepted → new shipment, no refund. Seller reject → dispute.',
+      items:['ReturnRecord created for every decision','Exchange completed → Dr Shipper Receivable / Cr Seller Account (return shipping)','Reject → routes to /sync/dispute-event']
+    }},
+  {id:'sync-dispute', x:720, y:240, w:200, h:60, title:'/sync/dispute-event', sub:'opened · decided · appealed', status:'missing',
+    detail:{
+      desc:'Receives dispute and appeal events. Decision outcome determines whether PDO releases to seller (Scenario 4) or buyer (Scenario 5).',
+      items:['DISPUTE_OPENED_* → PDOLedger entry created, status = holding','DISPUTE_DECIDED_SELLER_FAVOUR → Process 18','DISPUTE_DECIDED_BUYER_FAVOUR → Process 19','APPEAL_OPENED → extends disputeDeadline / appealDeadline']
+    }},
+  {id:'sync-seller', x:940, y:240, w:180, h:60, title:'/sync/seller-event', sub:'limit · suspend · restore', status:'missing',
+    detail:{
+      desc:'Receives seller status changes computed by Backend B (defect rate, star rating, selling limit).',
+      items:['ACCOUNT_SUSPENDED → payoutEligible = false, freeze pending obligations','ACCOUNT_RESTORED → payoutEligible = true, release frozen obligations','SELLING_LIMIT_CHANGED → logged in FinancialAuditLog']
+    }},
+
+  // ---------- Backend A core ----------
+  {id:'order-engine', x:60, y:410, w:220, h:60, title:'Order Engine', sub:'85% — orderDetails gap (M-6)', status:'partial',
+    detail:{
+      desc:'Receives order from Backend B, splits the amount, and posts the initial journal entry. 85% complete — M-6 means orderDetails isn\'t fully populated yet.',
+      items:['Local: paid via APG / COD / RAAST','International: FX rate locked first, then same split','Sets isInternational, buyerCountry, originalCurrency, fxRate, pkrEquivalent'],
+      journal:`<span class="dr">Dr</span> Wallet                 [full amount]
+<span class="cr">Cr</span> Commission Income       [commission]
+<span class="cr">Cr</span> Seller Receivable        [net to seller]
+<span class="cr">Cr</span> Shipper Receivable       [shipping fee]
+<span class="cr">Cr</span> Tax Payable              [tax]`
+    }},
+  {id:'fx-module', x:300, y:410, w:200, h:60, title:'FX Module', sub:'FXRateRecord, gain/loss', status:'missing',
+    detail:{
+      desc:'For international orders: locks the exchange rate at order time and snapshots it. On settlement/refund day, the difference posts to FX Gain/Loss.',
+      items:['New model: FXRateRecord { rate, currency, source, lockedAt }','New endpoint: POST /finance/fx/lock-rate','New COA account: FX Gain/Loss (Income/Expense)'],
+      journal:`<span class="dr">Dr</span> FX Gain/Loss   [delta]
+<span class="cr">Cr</span> Wallet         [delta]
+  (or reversed if rate moved favourably)`
+    }},
+  {id:'tax-module', x:520, y:410, w:200, h:60, title:'Tax Module', sub:'TaxRecord, remittance', status:'missing',
+    detail:{
+      desc:'Dedicated module given FBR digital-economy rules, withholding tax on sellers, and GST on commission. Feeds the order engine\'s breakup step.',
+      items:['TaxService.calculate(order) → breakdown consumed by breakup engine','TaxRecord: orderId, taxType, amount, jurisdiction, rate, law','Aggregates into monthly/quarterly remittance summaries']
+    }},
+  {id:'commission', x:740, y:410, w:200, h:60, title:'Commission Engine', sub:'broken — C-1, C-2', status:'missing',
+    detail:{
+      desc:'Two bugs make this return zero for every order, ever.',
+      items:['C-1: queries type:"journal" but orders are stored as type:"order"','C-2: readyForRetainedEarning defaults true, filter checks for false — no order ever qualifies','Fix is small (~2 hrs) but blocks every commission report']
+    }},
+  {id:'ledger-coa', x:960, y:410, w:160, h:60, title:'Ledger & COA', sub:'functional foundation', status:'built',
+    detail:{
+      desc:'Double-entry ledger, Chart of Accounts, immutable audit log, integer-paise arithmetic, idempotency keys, repository pattern. The solid base everything writes into.',
+      items:['7 new COA accounts needed: PDOs, Dispute Resolution Order, Refund Payable, Return Shipping Receivable, Tax Payable, Buyer Account, FX Gain/Loss']
+    }},
+  {id:'seller-settle', x:60, y:500, w:220, h:60, title:'Seller / Shipper Settlement', sub:'70% — C-4, H-1', status:'partial',
+    detail:{
+      desc:'Account statement generation works but the reversal is non-atomic (C-4) and there\'s a balance race condition under concurrent orders (H-1).',
+      items:['C-4: reverseAccountStatement does 2 writes outside a session — fix with mongo session','H-1: lost-update on seller balance — needs atomic $inc','Gated by SellerPayoutGate (payoutEligible flag)']
+    }},
+  {id:'payroll', x:300, y:500, w:200, h:60, title:'Payroll / Salary', sub:'60% — C-3, H-8', status:'partial',
+    detail:{
+      desc:'Journal entries post correctly but SalaryBreakupfile.paymentStatus never flips to "paid" — risk of duplicate payment.',
+      items:['C-3: add paySalary() with explicit status transition','H-8: add missing SALARY_PAID constant','Salary is the first flow wired through PaymentService (lowest risk, known recipients)']
+    }},
+  {id:'expense', x:520, y:500, w:200, h:60, title:'Expense Tracking', sub:'90% — no disbursement', status:'partial',
+    detail:{
+      desc:'Reporting and approval flow is solid. The missing 10% is that approved expenses never trigger a real cash payout — depends on the payment layer.',
+      items:['Once payout layer exists: approved expense → PaymentObligation{type:"expense"}']
+    }},
+  {id:'seller-gate', x:740, y:500, w:200, h:60, title:'Seller Payout Gate', sub:'blocks suspended sellers', status:'missing',
+    detail:{
+      desc:'Checks payoutEligible before any PayoutJob for a seller/shipper is created. Suspended sellers never reach the provider adapters.',
+      items:['payoutEligible set false on ACCOUNT_SUSPENDED','Frozen obligations released on ACCOUNT_RESTORED','New fields on FinanceSeller: payoutFrozenReason, payoutFrozenAt, currentStarRating, defectRatePercent, sellingLimitStatus']
+    }},
+  {id:'bank-stub', x:960, y:500, w:160, h:60, title:'bank.service.js', sub:'C-5 — fake stub', status:'missing',
+    detail:{
+      desc:'Hardcoded fake response. No real money has ever moved to any employee, seller, or shipper. This entire box is replaced by the Payment Layer + Adapters below.',
+      items:['Currently: returns { status: "success" } unconditionally','Target: replaced entirely by PaymentObligation → PayoutJob → ProviderAdapter']
+    }},
+
+  // ---------- Wallet & Budget ----------
+  {id:'wallet', x:70, y:700, w:240, h:70, title:'Wallet (sub-ledger)', sub:'control account in COA', status:'missing',
+    detail:{
+      desc:'A real Asset account in the Chart of Accounts. Every order, payout, refund, and top-up posts a journal entry where the wallet is one leg of the double entry.',
+      items:['1:1 (re-linkable) link to a real BankAccount via WalletBankLink','Two flavours: Gateway/Settlement Wallet (money at Safepay/Alfa) and Operating Wallet (money in real bank)','balancePaise must always equal sum of journal entries posted to it'],
+      journal:`balance       = sum(journal entries)
+reserved      = sum(active PaymentObligation reservations)
+available     = balance - reserved`
+    }},
+  {id:'wallet-topup', x:330, y:700, w:240, h:70, title:'Wallet Top-Up', sub:'bank → wallet, manual + webhook', status:'missing',
+    detail:{
+      desc:'Since the bank account can\'t auto-sync, top-ups are recorded manually and confirmed via webhook before the wallet balance increases.',
+      items:['status: pending_confirmation → confirmed (via bank webhook)','Only confirmed top-ups increase wallet balance'],
+      journal:`On confirmation:
+<span class="dr">Dr</span> Wallet Control Account (1010-W)
+<span class="cr">Cr</span> Bank Account (1010-B)`
+    }},
+  {id:'budget', x:70, y:790, w:240, h:70, title:'Budget Module', sub:'allocations, reserve & release', status:'missing',
+    detail:{
+      desc:'BudgetAllocation rows earmark portions of the single wallet balance by category. Gates every PaymentObligation before it can reserve funds.',
+      items:['Categories: salary, seller_payout, shipper_payout, expense, tax, marketing','available = allocated − spent − reserved','Budget check happens BEFORE PaymentObligation moves to awaiting_approval'],
+      journal:`BudgetAllocation {
+  category, periodStart, periodEnd,
+  allocatedPaise, spentPaise, reservedPaise
+}`
+    }},
+  {id:'reserve-flow', x:330, y:790, w:240, h:70, title:'Reservation Lifecycle', sub:'reserve → debit → release', status:'missing',
+    detail:{
+      desc:'Funds are reserved (held) the moment a PaymentObligation is created, and only actually debited from the wallet when the bank confirms.',
+      items:['reserved → released (on cancel/reject before payout)','reserved → debited (on payout confirmation)','debited → reversal_pending → reversed (failed payout, refund-in)']
+    }},
+  {id:'bank-account', x:70, y:880, w:240, h:60, title:'Real Bank Account', sub:'reconciled via statement', status:'missing',
+    detail:{
+      desc:'The actual physical bank account at HBL/Alfalah. Not directly synced — the wallet is the books\' real-time estimate, reconciled against this periodically.',
+      items:['Wallet ≈ Bank balance, with known timing differences from settlement delays','Reconciliation job flags drift beyond expected lag']
+    }},
+  {id:'gl-rollup', x:330, y:880, w:240, h:60, title:'GL Roll-up Check', sub:'wallet ↔ control account', status:'missing',
+    detail:{
+      desc:'Daily check: wallet sub-ledger balance must equal the GL Wallet Control Account balance. Any mismatch is a bug, not a "rounding difference".',
+      items:['This is the audit trail — every wallet movement is a journal entry, full double-entry, fully traceable']
+    }},
+
+  // ---------- PDO / Refund / Return / Dispute ----------
+  {id:'pdo', x:630, y:700, w:240, h:70, title:'PDO Ledger', sub:'holding account — central', status:'missing',
+    detail:{
+      desc:'Potential Disputed Orders — a Liability holding account. Money sits here while a cancellation/return/dispute is unresolved.',
+      items:['addedReason: cancellation_rejected, return_time_active, seller_rejected_return, dispute_opened, appeal_opened','status: holding → released_to_seller | released_to_buyer | expired','disputeDeadline and appealDeadline (6 days from decision) tracked'],
+      journal:`ADD:
+<span class="dr">Dr</span> PDOs
+<span class="cr">Cr</span> Order Amount`
+    }},
+  {id:'refund-module', x:890, y:700, w:240, h:70, title:'Refund Module', sub:'8 refund reasons', status:'missing',
+    detail:{
+      desc:'A refund reverses the original split: return buyer\'s money, recover/absorb commission, recover shipper fee if seller-fault, adjust tax.',
+      items:['Reasons: cancelled_before_ship, return_accepted_seller_fault, return_accepted_buyer_fault, dispute_decided_buyer, appeal_decided_buyer, failed_delivery, non_payment_30_days, cancelled_after_ship_seller_consent','RefundRecord tracks status: pending → processing → completed/failed'],
+      journal:`<span class="dr">Dr</span> Customer/Buyer Account
+<span class="cr">Cr</span> PDOs
+
+<span class="dr">Dr</span> Payment Summary for Refund
+<span class="cr">Cr</span> Shipping charges from Seller (if applicable)
+<span class="cr">Cr</span> Customer/Buyer Account`
+    }},
+  {id:'cancellation', x:630, y:790, w:240, h:70, title:'Cancellation Module', sub:'3 conditions × 5 reasons', status:'missing',
+    detail:{
+      desc:'Not shipped+within handling (all auto-accept) / Not shipped+after handling (mixed) / Already shipped (only 2 auto-acceptable).',
+      items:['Paid + accepted → Process 7 + Process 19','Rejected (already shipped, changed mind etc) → PDOs (Process 9)','CancellationRecord stores condition, reason, autoAccepted, sellerAccepted, status']
+    }},
+  {id:'return-dispute', x:890, y:790, w:240, h:70, title:'Return / Dispute Finance', sub:'ReturnRecord, DisputeRecord', status:'missing',
+    detail:{
+      desc:'Scenario A–G from the return decision tree: exchange completed, return accepted+refund, dispute opened, dispute decided for seller/buyer, failed COD delivery, 30-day non-payment.',
+      items:['Scenario D (seller wins): Dr Order Amount / Cr Dispute Resolution Order, then Cr Commission, Bank Charges, Seller Account → Process 18','Scenario E (buyer wins): same first line, then Cr Return Shipping, Cr Buyer Account → Process 19']
+    }},
+  {id:'treasury-prep', x:630, y:880, w:240, h:60, title:'Auction / Security Deposit', sub:'defined, not built', status:'missing',
+    detail:{
+      desc:'Fully designed in accounting scenario docs (bidder deposit, seller deposit, return of deposit on various outcomes) but zero implementation.',
+      items:['Lowest priority — Month 4 in the rollout sequence']
+    }},
+  {id:'pdo-resolution', x:890, y:880, w:240, h:60, title:'Resolution Router', sub:'seller-win vs buyer-win', status:'missing',
+    detail:{
+      desc:'Once a dispute/appeal is decided, this routes the PDO release to either Process 18 (pay seller) or Process 19 (refund buyer).',
+      items:['Seller wins → releasedTo: "seller", releasedProcess: "Process 18"','Buyer wins → releasedTo: "buyer", releasedProcess: "Process 19"']
+    }},
+
+  // ---------- Payment layer ----------
+  {id:'obligation', x:70, y:1020, w:220, h:60, title:'PaymentObligation', sub:'pending → confirmed/failed', status:'missing',
+    detail:{
+      desc:'Every type of money owed — salary, seller payout, shipper payout, refund, expense — becomes one of these. The reservation step happens here.',
+      items:['State machine: pending → awaiting_approval → approved → processing → confirmed/failed','Auto-approve below configurable threshold; otherwise → Treasury Approval']
+    }},
+  {id:'treasury', x:310, y:1020, w:220, h:60, title:'Treasury Approval', sub:'maker-checker, missing', status:'missing',
+    detail:{
+      desc:'Maker-checker gate for obligations above the auto-approve threshold. One person creates, another approves.',
+      items:['TreasuryApproval model: obligationId, maker, checker, decision, decidedAt']
+    }},
+  {id:'payout-job', x:550, y:1020, w:220, h:60, title:'PayoutJob', sub:'execution tracking', status:'missing',
+    detail:{
+      desc:'Tracks the actual bank transfer execution and its status, separate from the obligation itself.',
+      items:['Links to ProviderAdapter used','status mirrors obligation but tracks provider-side state']
+    }},
+  {id:'webhook-event', x:790, y:1020, w:220, h:60, title:'BankWebhookEvent', sub:'idempotent confirmations', status:'missing',
+    detail:{
+      desc:'Stores every incoming bank webhook idempotently (provider + eventId) before processing, so retries from the bank don\'t double-process.',
+      items:['POST /finance/webhooks/:provider — signature-only, no auth, raw body','On confirm: wallet debits, paid flag set, callback fired to Backend B']
+    }},
+  {id:'settlement', x:70, y:1100, w:300, h:60, title:'Settlement APIs', sub:'batch seller / refund runs', status:'missing',
+    detail:{
+      desc:'Scheduled batch runs that sweep all eligible PaymentObligations into PayoutJobs.',
+      items:['POST /finance/settlements/seller/batch','POST /finance/settlements/buyer/refunds','GET /finance/settlements/status']
+    }},
+  {id:'recon', x:400, y:1100, w:300, h:60, title:'Reconciliation Job', sub:'cursor-based, nightly', status:'missing',
+    detail:{
+      desc:'Compares wallet sub-ledger vs bank statement vs GL control account. Cursor-based so it doesn\'t load all transactions into memory.',
+      items:['Flags drift beyond expected settlement-lag tolerance','Month 5 in the rollout sequence']
+    }},
+  {id:'notifications', x:730, y:1100, w:280, h:60, title:'Notification / Callback Dispatch', sub:'fires events to Backend B', status:'missing',
+    detail:{
+      desc:'Every confirmed state change fires a callback to Backend B so the marketplace UI reflects reality.',
+      items:['PAYMENT_CONFIRMED, REFUND_INITIATED, REFUND_COMPLETED','SELLER_PAYOUT_INITIATED, SELLER_PAYOUT_COMPLETED','ORDER_FINANCIALLY_SETTLED, SELLING_LIMIT_ENFORCED']
+    }},
+
+  // ---------- Local adapters ----------
+  {id:'hbl', x:70, y:1240, w:160, h:60, title:'HBL Adapter', sub:'bulk salary, IBFT', status:'missing',
+    detail:{ desc:'HBL Corporate Bulk Payout API. Primary for bulk salary runs and large seller/shipper IBAN settlements.', items:['Onboarding: 4-8 weeks'] }},
+  {id:'raast', x:250, y:1240, w:160, h:60, title:'RAAST Adapter', sub:'instant PKR P2P', status:'missing',
+    detail:{ desc:'Instant, free P2P payments — used for expenses and quick payouts to any bank account.', items:['Free, instant settlement'] }},
+  {id:'apg', x:430, y:1240, w:160, h:60, title:'APG Adapter', sub:'receive + refund', status:'missing',
+    detail:{ desc:'Bank Alfalah / Alfa Payment Gateway. Receives buyer payments and issues local refunds.', items:['~1.5-2% fee on receive'] }},
+  {id:'jazzcash', x:610, y:1240, w:170, h:60, title:'JazzCash / Easypaisa', sub:'unbanked sellers, shippers', status:'missing',
+    detail:{ desc:'Mobile wallet fallback for sellers/shippers without bank accounts. JazzCash: 1-2 week onboarding, fastest of all options.', items:['Recommended starting point per onboarding speed'] }},
+  {id:'router-local', x:60, y:1320, w:520, h:50, title:'ProviderRouter — local', sub:'routes by recipient.paymentMethod', status:'missing',
+    detail:{ desc:'selectPayoutAdapter(recipient): country !== "PK" → Airwallex; else routes by paymentMethod (iban→HBL, raast→RAAST, jazzcash/easypaisa→respective wallet adapters).', items:[] }},
+
+  // ---------- International / FX / Tax adapters ----------
+  {id:'airwallex', x:630, y:1240, w:220, h:60, title:'Airwallex Adapter', sub:'payout, refund, FX, batch', status:'missing',
+    detail:{
+      desc:'Primary international rail. 0.5% FX on majors, ~95% same-day settlement. Requires a UAE Free Zone LLC entity (Pakistan residents can\'t open directly).',
+      items:['Batch Payouts API for international salaries','Payouts API for seller/shipper settlements (multi-currency balances)','Virtual Cards for one-off vendor payments','Refund API → original payment method, with FX gain/loss recorded']
+    }},
+  {id:'payoneer', x:870, y:1240, w:210, h:60, title:'Payoneer Adapter', sub:'fallback for sellers/shippers', status:'missing',
+    detail:{ desc:'Used when a seller/shipper is already on Payoneer. P2P transfers between Payoneer accounts are instant and free.', items:['~2% fee Payoneer → bank'] }},
+  {id:'router-intl', x:630, y:1320, w:450, h:50, title:'ProviderRouter — international', sub:'recipient.country !== "PK" → Airwallex', status:'missing',
+    detail:{ desc:'All international refunds and payouts default to Airwallex. Payoneer used only when recipient already has an account there.', items:[] }},
+
+  // ---------- External rails ----------
+  {id:'rails', x:60, y:1430, w:1080, h:30, title:'HBL · RAAST · Alfalah/APG · JazzCash · Easypaisa · Airwallex · Payoneer — real bank/IBAN settlement', sub:'', status:'built',
+    detail:{ desc:'These are the actual external systems where money physically moves. Everything above this line is bookkeeping that mirrors and triggers what happens here.', items:[] }},
+];
+
+/* ============================================================
+   CONNECTIONS
+   from, to (node ids), label (optional)
+============================================================ */
+const CONNS = [
+  ['b-storefront','sync-order'],
+  ['b-storefront','sync-cancel'],
+  ['b-entity','sync-seller'],
+  ['b-returns','sync-return'],
+  ['b-returns','sync-dispute'],
+  ['b-dispatcher','sync-order'],
+  ['b-dispatcher','sync-cancel'],
+  ['b-dispatcher','sync-return'],
+  ['b-dispatcher','sync-dispute'],
+  ['b-dispatcher','sync-seller'],
+
+  ['sync-order','order-engine'],
+  ['sync-cancel','cancellation'],
+  ['sync-return','return-dispute'],
+  ['sync-dispute','pdo'],
+  ['sync-seller','seller-gate'],
+
+  ['order-engine','fx-module'],
+  ['order-engine','tax-module'],
+  ['order-engine','commission'],
+  ['order-engine','ledger-coa'],
+  ['order-engine','wallet'],
+
+  ['ledger-coa','seller-settle'],
+  ['ledger-coa','payroll'],
+  ['ledger-coa','expense'],
+  ['seller-settle','seller-gate'],
+  ['seller-gate','bank-stub'],
+
+  ['wallet','wallet-topup'],
+  ['wallet','budget'],
+  ['budget','reserve-flow'],
+  ['wallet-topup','bank-account'],
+  ['wallet','gl-rollup'],
+  ['bank-account','gl-rollup'],
+
+  ['cancellation','pdo'],
+  ['return-dispute','pdo'],
+  ['pdo','pdo-resolution'],
+  ['pdo-resolution','refund-module'],
+  ['pdo-resolution','obligation'],
+  ['refund-module','obligation'],
+  ['treasury-prep','pdo'],
+
+  ['wallet','obligation'],
+  ['reserve-flow','obligation'],
+  ['obligation','treasury'],
+  ['treasury','payout-job'],
+  ['payout-job','webhook-event'],
+  ['webhook-event','wallet'],
+  ['webhook-event','notifications'],
+  ['obligation','settlement'],
+  ['settlement','recon'],
+  ['recon','gl-rollup'],
+
+  ['payout-job','router-local'],
+  ['payout-job','router-intl'],
+  ['router-local','hbl'],
+  ['router-local','raast'],
+  ['router-local','apg'],
+  ['router-local','jazzcash'],
+  ['router-intl','airwallex'],
+  ['router-intl','payoneer'],
+  ['fx-module','airwallex'],
+
+  ['hbl','rails'],
+  ['raast','rails'],
+  ['apg','rails'],
+  ['jazzcash','rails'],
+  ['airwallex','rails'],
+  ['payoneer','rails'],
+
+  ['notifications','b-dispatcher'],
+];
+
+/* ============================================================
+   SCENARIOS — sequences of node ids to highlight in order
+============================================================ */
+const SCENARIOS = {
+  'local-order': ['b-storefront','sync-order','order-engine','tax-module','ledger-coa','wallet','budget'],
+  'intl-order': ['b-storefront','sync-order','order-engine','fx-module','tax-module','wallet','airwallex'],
+  'seller-payout': ['pdo-resolution','obligation','treasury','payout-job','router-local','hbl','rails','webhook-event','wallet','notifications'],
+  'refund': ['sync-return','return-dispute','pdo','refund-module','obligation','treasury','payout-job','apg','rails','webhook-event','wallet','notifications'],
+  'dispute': ['sync-dispute','pdo','pdo-resolution','treasury-prep'],
+};
+
+/* ============================================================
+   RENDER NODES + CONNECTORS
+============================================================ */
+const svg = document.getElementById('diagram');
+const nodesG = document.getElementById('nodes');
+const connG = document.getElementById('connectors');
+const NODE_MAP = {};
+NODES.forEach(n => NODE_MAP[n.id] = n);
+
+function center(n){ return { x: n.x + n.w/2, y: n.y + n.h/2 }; }
+
+// connectors first (under nodes)
+CONNS.forEach(([fromId, toId]) => {
+  const a = NODE_MAP[fromId], b = NODE_MAP[toId];
+  if(!a || !b) return;
+  const c1 = center(a), c2 = center(b);
+
+  // route: if mostly vertical, straight-ish; else simple cubic
+  let d;
+  const dx = c2.x - c1.x, dy = c2.y - c1.y;
+  if(Math.abs(dx) < 30){
+    d = `M ${c1.x} ${a.y + a.h} L ${c2.x} ${b.y}`;
+  } else if (Math.abs(dy) < 30){
+    d = `M ${a.x + a.w} ${c1.y} L ${b.x} ${c2.y}`;
+  } else {
+    const midY = (c1.y + c2.y)/2;
+    d = `M ${c1.x} ${a.y + a.h} C ${c1.x} ${midY}, ${c2.x} ${midY}, ${c2.x} ${b.y}`;
+  }
+
+  const path = document.createElementNS('http://www.w3.org/2000/svg','path');
+  path.setAttribute('d', d);
+  path.setAttribute('class','conn');
+  path.setAttribute('data-from', fromId);
+  path.setAttribute('data-to', toId);
+  connG.appendChild(path);
+});
+
+// nodes
+NODES.forEach(n => {
+  const g = document.createElementNS('http://www.w3.org/2000/svg','g');
+  g.setAttribute('class','node-group');
+  g.setAttribute('data-id', n.id);
+  g.style.cursor = 'pointer';
+
+  const rect = document.createElementNS('http://www.w3.org/2000/svg','rect');
+  rect.setAttribute('x', n.x);
+  rect.setAttribute('y', n.y);
+  rect.setAttribute('width', n.w);
+  rect.setAttribute('height', n.h);
+  rect.setAttribute('rx', 10);
+  rect.setAttribute('class', 'node-rect ' + n.status);
+  g.appendChild(rect);
+
+  const title = document.createElementNS('http://www.w3.org/2000/svg','text');
+  title.setAttribute('class','node-title');
+  title.setAttribute('x', n.x + 14);
+  title.setAttribute('y', n.y + 24);
+  title.textContent = n.title;
+  g.appendChild(title);
+
+  if(n.sub){
+    const sub = document.createElementNS('http://www.w3.org/2000/svg','text');
+    sub.setAttribute('class','node-sub');
+    sub.setAttribute('x', n.x + 14);
+    sub.setAttribute('y', n.y + 42);
+    sub.textContent = n.sub;
+    g.appendChild(sub);
+  }
+
+  if(n.status !== 'built' || n.id === 'rails'){
+    const status = document.createElementNS('http://www.w3.org/2000/svg','text');
+    status.setAttribute('class','node-status ' + n.status);
+    status.setAttribute('x', n.x + n.w - 10);
+    status.setAttribute('y', n.y + n.h - 10);
+    status.setAttribute('text-anchor','end');
+    status.textContent = n.status === 'built' ? 'built' : (n.status === 'partial' ? 'partial' : 'missing');
+    g.appendChild(status);
+  } else {
+    const status = document.createElementNS('http://www.w3.org/2000/svg','text');
+    status.setAttribute('class','node-status built');
+    status.setAttribute('x', n.x + n.w - 10);
+    status.setAttribute('y', n.y + n.h - 10);
+    status.setAttribute('text-anchor','end');
+    status.textContent = 'built';
+    g.appendChild(status);
+  }
+
+  g.addEventListener('click', () => selectNode(n.id));
+  nodesG.appendChild(g);
+});
+
+/* ============================================================
+   SIDE PANEL
+============================================================ */
+const placeholder = document.getElementById('side-placeholder');
+const content = document.getElementById('side-content');
+let selectedId = null;
+
+function statusLabel(s){
+  if(s==='built') return 'Built / functional';
+  if(s==='partial') return 'Partial — known gap';
+  return 'Not built yet';
+}
+
+function selectNode(id){
+  // clear previous selection
+  document.querySelectorAll('.node-group.selected').forEach(el => el.classList.remove('selected'));
+  const g = document.querySelector(`.node-group[data-id="${id}"]`);
+  if(g) g.classList.add('selected');
+  selectedId = id;
+
+  const n = NODE_MAP[id];
+  const d = n.detail || {};
+
+  placeholder.style.display = 'none';
+  content.style.display = 'block';
+
+  let html = '';
+  html += `<h2>${n.title}</h2>`;
+  html += `<span class="status-pill ${n.status}">${statusLabel(n.status)}</span>`;
+
+  if(d.desc){
+    html += `<div class="section"><div class="section-label">What it does</div><p>${d.desc}</p></div>`;
+  }
+  if(d.items && d.items.length){
+    html += `<div class="section"><div class="section-label">Details</div><ul>${d.items.map(i=>`<li>${i}</li>`).join('')}</ul></div>`;
+  }
+  if(d.journal){
+    html += `<div class="section"><div class="section-label">Journal entry</div><div class="journal">${d.journal}</div></div>`;
+  }
+
+  content.innerHTML = html;
+}
+
+/* ============================================================
+   SCENARIO TRACER
+============================================================ */
+const buttons = document.querySelectorAll('.scenario-btn');
+let traceTimeout = null;
+
+buttons.forEach(btn => {
+  btn.addEventListener('click', () => {
+    const scen = btn.dataset.scenario;
+    buttons.forEach(b => b.classList.remove('active'));
+
+    if(scen === 'reset'){
+      clearTrace();
+      return;
+    }
+    btn.classList.add('active');
+    runTrace(SCENARIOS[scen]);
+  });
+});
+
+function clearTrace(){
+  if(traceTimeout) clearTimeout(traceTimeout);
+  document.querySelectorAll('.node-rect').forEach(r => r.classList.remove('pulse-node'));
+  document.querySelectorAll('.conn').forEach(c => { c.classList.remove('dim'); c.removeAttribute('stroke'); c.removeAttribute('stroke-width'); });
+  document.querySelectorAll('.node-group').forEach(g => g.style.opacity = 1);
+}
+
+function runTrace(sequence){
+  clearTrace();
+  // dim everything first
+  document.querySelectorAll('.node-group').forEach(g => g.style.opacity = 0.25);
+  document.querySelectorAll('.conn').forEach(c => c.classList.add('dim'));
+
+  let i = 0;
+  function step(){
+    if(i >= sequence.length) return;
+    const id = sequence[i];
+    const g = document.querySelector(`.node-group[data-id="${id}"]`);
+    if(g){
+      g.style.opacity = 1;
+      const rect = g.querySelector('.node-rect');
+      rect.classList.remove('pulse-node');
+      // restart animation
+      void rect.offsetWidth;
+      rect.classList.add('pulse-node');
+    }
+    // highlight connector to previous node
+    if(i > 0){
+      const prevId = sequence[i-1];
+      const conn = document.querySelector(`.conn[data-from="${prevId}"][data-to="${id}"]`) ||
+                   document.querySelector(`.conn[data-from="${id}"][data-to="${prevId}"]`);
+      if(conn){
+        conn.classList.remove('dim');
+        conn.setAttribute('stroke', '#FFD66B');
+        conn.setAttribute('stroke-width','2');
+      }
+    }
+    selectNode(id);
+    i++;
+    traceTimeout = setTimeout(step, 850);
+  }
+  step();
+}
+</script>
+
+</body>
+</html>
