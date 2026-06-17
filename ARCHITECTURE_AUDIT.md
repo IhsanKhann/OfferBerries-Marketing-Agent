@@ -1,4 +1,4 @@
-# OfferBerries AI Platform — Full Architecture Audit
+`# OfferBerries AI Platform — Full Architecture Audit
 
 > All claims below reference actual code. File:line citations are included so you can verify every statement.
 
