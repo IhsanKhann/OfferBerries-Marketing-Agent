@@ -59,6 +59,7 @@ export default function QueuePage() {
   const {
     runId, runStatus, currentStage, running,
     researchModel, setResearchModel,
+    contentModel, setContentModel,
     agentError, clearError,
     startRun, stepStatuses,
   } = useAgentRun(fetchPosts, addMessage);
@@ -190,6 +191,8 @@ export default function QueuePage() {
               onRun={runAgent}
               researchModel={researchModel}
               setResearchModel={setResearchModel}
+              contentModel={contentModel}
+              setContentModel={setContentModel}
               onAttachFiles={addImages}
               onAttachImages={addImages}
             />

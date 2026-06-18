@@ -48,8 +48,13 @@ async def _call_tool(tool_name: str, arguments: dict, api_key: str = None, run_i
 async def research_node(state: AgentState) -> AgentState:
     logger.info(f"[{state['run_id']}] Research node starting for topic: {state['topic']}")
 
+    research_model = state.get("research_model") or "sonar"
     try:
-        brief = await _call_tool("research_trends", {"topic": state["topic"], "platform": "all"}, run_id=state["run_id"])
+        brief = await _call_tool(
+            "research_trends",
+            {"topic": state["topic"], "platform": "all", "model": research_model},
+            run_id=state["run_id"],
+        )
         state["brief"] = brief
     except Exception as e:
         state["errors"].append(f"research_trends error: {e}")
