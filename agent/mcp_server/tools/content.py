@@ -13,6 +13,72 @@ from schemas import PlatformContent, ResearchBrief, VoiceProfileDoc
 
 logger = logging.getLogger("mcp_server")
 
+_BRAND_VOICE_CACHE: Optional[str] = None
+
+
+def _load_brand_voice_md() -> str:
+    """Load the base OfferBerries brand identity guide (banned phrases, Pakistan
+    context, PKR pricing, per-platform tone). Cached after first read."""
+    global _BRAND_VOICE_CACHE
+    if _BRAND_VOICE_CACHE is not None:
+        return _BRAND_VOICE_CACHE
+    candidates = (
+        "/app/config/brand_voice.md",
+        os.path.join(os.path.dirname(__file__), "..", "config", "brand_voice.md"),
+    )
+    for path in candidates:
+        try:
+            with open(path, encoding="utf-8") as f:
+                _BRAND_VOICE_CACHE = f.read().strip()
+                return _BRAND_VOICE_CACHE
+        except (FileNotFoundError, OSError):
+            continue
+    _BRAND_VOICE_CACHE = ""
+    return _BRAND_VOICE_CACHE
+
+
+# One good + one bad example per platform, grounded in brand_voice.md. The GOOD
+# examples are concrete and local; the BAD ones use banned buzzwords and vague CTAs.
+FEW_SHOT_EXAMPLES: dict[str, str] = {
+    "linkedin": (
+        "GOOD (specific, concrete, local, ends on a real question):\n"
+        "\"EOBI filing that took your HR team 3 hours every month now takes 8 minutes.\n\n"
+        "Most Faisalabad factory owners still total EOBI contributions by hand in a register, "
+        "then re-enter them for payslips. One mistake means a compliance headache later.\n\n"
+        "What's the one end-of-month task you'd automate first?\"\n\n"
+        "BAD (generic, buzzwords, vague CTA — never write like this):\n"
+        "\"Let's talk about bringing clarity and control to your operations. Our seamless, "
+        "cutting-edge solution empowers businesses to unlock their potential. Learn more.\""
+    ),
+    "twitter": (
+        "GOOD (one stat, one sharp opinion, under 280 chars):\n"
+        "\"PKR 4,999/month vs one accountant's overtime every GST season.\n\nThe math isn't close.\"\n\n"
+        "BAD (fluffy, banned words, no specifics):\n"
+        "\"Take your business to the next level with our game-changing, robust platform. #innovation #synergy\""
+    ),
+    "instagram": (
+        "GOOD (relatable shop-floor scene, real pain, then the fix):\n"
+        "\"It's the 28th. Your manager is still chasing attendance registers for payroll, "
+        "so payslips go out late — again.\n\n"
+        "There's a faster way: payslips on WhatsApp, EOBI auto-calculated, attendance synced.\"\n\n"
+        "BAD (abstract, salesy, banned words):\n"
+        "\"Empower your business with our robust, cutting-edge ERP ecosystem. DM to learn more!\""
+    ),
+    "youtube": (
+        "GOOD (problem-first hook in the first line):\n"
+        "\"Still doing payroll by hand? Here's what month-end looks like for a Karachi wholesaler "
+        "who stopped — and got 3 hours back.\"\n\n"
+        "BAD (slow, corporate, banned words):\n"
+        "\"In today's video we explore how to leverage synergies to optimize your workflow.\""
+    ),
+    "email": (
+        "GOOD (subject names one concrete pain):\n"
+        "Subject: Your EOBI register is costing you 3 hours a month\n\n"
+        "BAD (clickbait, empty):\n"
+        "Subject: This ONE trick will revolutionize your business forever"
+    ),
+}
+
 
 def build_content_prompt(
     topic_str: str,
@@ -22,6 +88,8 @@ def build_content_prompt(
     platform: str,
     product: str,
     voice: Optional[VoiceProfileDoc],
+    brand_identity: str = "",
+    tenant_voice: str = "",
     extra_context: str = "",
 ) -> tuple[str, str]:
     char_limit = PLATFORM_CHAR_LIMITS.get(platform, 1300)
@@ -55,14 +123,35 @@ def build_content_prompt(
         "email": "Subject line + 150-word body. One CTA link.",
     }
 
+    # Compose the system prompt from layered sources (later overrides earlier):
+    # brand identity guide -> tenant brand-voice override -> voice profile -> role.
+    role_text = (
+        "--- YOUR ROLE ---\n"
+        "You are a senior social media content strategist for OfferBerries, a Pakistani "
+        "B2B ERP and commerce platform. Every post you write must:\n"
+        "- Reflect the brand identity above exactly\n"
+        "- Never use any banned phrase from the brand identity guide\n"
+        "- Include Pakistan-specific context (PKR pricing, EOBI, CNIC, Raast, JazzCash where relevant)\n"
+        "- Sound like it was written by a human expert, not generated\n"
+        "- Hook the reader in the first line with a specific concrete claim or question\n"
+        "- End with a single sharp CTA, not a vague invitation"
+    )
+    sections: list[str] = []
+    if brand_identity.strip():
+        sections.append("--- BRAND IDENTITY ---\n" + brand_identity.strip())
+    if tenant_voice.strip() and tenant_voice.strip() != brand_identity.strip():
+        sections.append("--- TENANT BRAND VOICE ---\n" + tenant_voice.strip())
     if voice and voice.system_prompt:
-        system_prompt = voice.system_prompt
-    else:
-        tone = voice.tone if voice else "professional"
-        system_prompt = (
-            f"You write social media content for Pakistani SMBs. Tone: {tone}. "
-            "Be honest and direct. Avoid corporate buzzwords."
-        )
+        sections.append("--- VOICE PROFILE ---\n" + voice.system_prompt.strip())
+    sections.append(role_text)
+    system_prompt = "\n\n".join(sections)
+
+    few_shot = FEW_SHOT_EXAMPLES.get(platform, "")
+    few_shot_block = (
+        f"\n--- EXAMPLES (match the GOOD example's specificity; never write like the BAD one) ---\n"
+        f"{few_shot}\n"
+        if few_shot else ""
+    )
 
     user_prompt = (
         f"Platform: {platform}\n"
@@ -73,6 +162,7 @@ def build_content_prompt(
         f"Suggested hooks: {hooks}\n"
         f"Product: {product}\n"
         + (f"Extra context: {extra_context}\n" if extra_context else "")
+        + few_shot_block
         + f"\nHashtag rules: {hashtag_rule}\n"
         f"CTA rules: {cta_rule}\n\n"
         "Return your response as valid JSON with exactly this structure (no markdown, no extra keys):\n"
@@ -130,6 +220,14 @@ async def tool_generate_content(
             except Exception:
                 pass
 
+    # Layered brand voice: base identity guide + tenant-editable override.
+    brand_identity = _load_brand_voice_md()
+    tenant_voice = ""
+    if tenant_id:
+        bv_doc = await _m.db["configs"].find_one({"tenant_id": tenant_id, "key": "brand_voice"})
+        if bv_doc and isinstance(bv_doc.get("value"), str):
+            tenant_voice = bv_doc["value"]
+
     char_limit = PLATFORM_CHAR_LIMITS.get(platform, 1300)
     actual_model = "anthropic/claude-sonnet-4-6" if model == "premium" else model
 
@@ -141,6 +239,7 @@ async def tool_generate_content(
     system_prompt, user_prompt = build_content_prompt(
         topic_str=topic_str, angles=angles, pain_points=pain_points, hooks=hooks,
         platform=platform, product=product, voice=voice_doc,
+        brand_identity=brand_identity, tenant_voice=tenant_voice,
     )
 
     async with httpx.AsyncClient(timeout=60) as client:
