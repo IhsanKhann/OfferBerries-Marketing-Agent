@@ -21,6 +21,7 @@ export default defineConfig({
         'app/**/queue/AgentChatThread.tsx',
         'components/AgentErrorBanner.tsx',
         'lib/toast.ts',
+        'app/**/sidebar.tsx',
       ],
     },
   },

@@ -18,12 +18,12 @@ Every phase is gated. Nothing proceeds to the next phase until:
 |-------|---------|----------|
 | 0 Baseline | 80% ✅ | 0% (no tests yet) |
 | 1 exit | ≥ 70% ✅ | ≥ 70% ✅ |
-| 2 exit | ≥ 75% | ≥ 75% |
+| 2 exit | ≥ 75% ✅ | ≥ 75% ✅ |
 | 3 exit | ≥ 75% | ≥ 75% |
 | 4 exit | ≥ 80% | ≥ 80% |
 | 5 exit | ≥ 80% | ≥ 80% |
 
-Backend **80%** (246 tests). Frontend **71% statements / 75% lines** (117 tests, 9 test files).
+Backend **80%** (269 tests). Frontend **77% statements / 80% lines** (140 tests, 11 test files).
 
 ---
 
@@ -78,8 +78,8 @@ claude mcp list
 
 ---
 
-## Phase 2 — Projects & Multi-Run Context
-*Gate: Backend ≥ 75% / Frontend ≥ 75%*
+## Phase 2 — Projects & Multi-Run Context ✅
+*Completed: 2026-06-18 | Gate: Backend ≥ 75% ✅ (80%) / Frontend ≥ 75% ✅ (77%)*
 
 ### What to build
 - `agent/mcp_server/services/context_service.py` — embed/store/retrieve via Atlas Vector Search
