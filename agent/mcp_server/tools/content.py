@@ -91,6 +91,7 @@ def build_content_prompt(
     brand_identity: str = "",
     tenant_voice: str = "",
     raw_summary: str = "",
+    competitor_insights: Optional[list] = None,
     extra_context: str = "",
 ) -> tuple[str, str]:
     char_limit = PLATFORM_CHAR_LIMITS.get(platform, 1300)
@@ -178,11 +179,27 @@ def build_content_prompt(
         # ~800 tokens of preserved research context (~3200 chars)
         research_block += f"\nFull research context:\n{raw_summary.strip()[:3200]}\n"
 
+    # Only include a competitor section when there is real scraped data.
+    competitor_block = ""
+    if competitor_insights:
+        lines = []
+        for c in competitor_insights[:5]:
+            txt = (c.get("text") if isinstance(c, dict) else str(c)) or ""
+            txt = txt.strip()
+            if txt:
+                lines.append(f"- {txt}")
+        if lines:
+            competitor_block = (
+                "\n--- COMPETITOR EXAMPLES (for inspiration only, do not copy) ---\n"
+                + "\n".join(lines) + "\n"
+            )
+
     user_prompt = (
         f"Platform: {platform}\n"
         f"Platform instructions: {platform_instructions.get(platform, '')}\n"
         f"Product: {product}\n\n"
         + research_block
+        + competitor_block
         + (f"\nExtra context: {extra_context}\n" if extra_context else "")
         + few_shot_block
         + f"\nHashtag rules: {hashtag_rule}\n"
@@ -282,12 +299,21 @@ async def tool_generate_content(
     hooks = brief.suggested_hooks if isinstance(brief, ResearchBrief) else brief.get("suggested_hooks", [])
     notes = brief.platform_notes if isinstance(brief, ResearchBrief) else brief.get("platform_notes", {})
     raw_summary = (notes or {}).get("raw_summary", "")
+    competitor_insights: list = []
+    ci_raw = (notes or {}).get("competitor_insights", "")
+    if ci_raw:
+        try:
+            parsed = json.loads(ci_raw)
+            if isinstance(parsed, list):
+                competitor_insights = parsed
+        except (ValueError, TypeError):
+            competitor_insights = []
 
     system_prompt, user_prompt = build_content_prompt(
         topic_str=topic_str, angles=angles, pain_points=pain_points, hooks=hooks,
         platform=platform, product=product, voice=voice_doc,
         brand_identity=brand_identity, tenant_voice=tenant_voice,
-        raw_summary=raw_summary,
+        raw_summary=raw_summary, competitor_insights=competitor_insights,
     )
 
     async with httpx.AsyncClient(timeout=60) as client:

@@ -73,12 +73,24 @@ async def research_node(state: AgentState) -> AgentState:
                     if isinstance(posts, list):
                         competitor_posts.extend(posts)
                 except Exception as e:
-                    state["errors"].append(f"scrape {handle}/{platform}: {e}")
+                    # Competitor scraping is optional enrichment — log but never
+                    # count it as a pipeline error (it must not trip the error gate).
+                    logger.warning(f"[{state['run_id']}] competitor scrape {handle}/{platform} failed: {e}")
 
         state["competitor_data"] = competitor_posts
+        # Only attach REAL competitor insights — never a fabricated count.
         if competitor_posts and state.get("brief"):
             state["brief"]["platform_notes"] = state["brief"].get("platform_notes", {})
-            state["brief"]["platform_notes"]["competitor_insights"] = f"Analysed {len(competitor_posts)} competitor posts"
+            insights = [
+                {
+                    "handle": p.get("handle", ""),
+                    "platform": p.get("platform", ""),
+                    "text": (p.get("text", "") or "")[:280],
+                    "likes": p.get("likes", 0),
+                }
+                for p in competitor_posts[:5]
+            ]
+            state["brief"]["platform_notes"]["competitor_insights"] = json.dumps(insights)
 
     logger.info(f"[{state['run_id']}] Research complete: {len(state.get('brief', {}).get('trending_angles', []))} angles")
     return state
