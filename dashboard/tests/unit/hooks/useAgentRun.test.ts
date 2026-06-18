@@ -140,3 +140,81 @@ describe('useAgentRun — clearError', () => {
     expect(result.current.agentError).toBeNull();
   });
 });
+
+describe('useAgentRun — AgentError detail branch', () => {
+  it('sets agentError when server returns structured error detail', async () => {
+    const { server } = await import('../../mocks/server');
+    const { http, HttpResponse } = await import('msw');
+    server.use(
+      http.post('/api/proxy/runs', () =>
+        HttpResponse.json(
+          { detail: { error_type: 'EMPTY_RESULT', message: 'No content found', is_retryable: true } },
+          { status: 422 }
+        ), { once: true }
+      )
+    );
+    const onMessage = vi.fn();
+    const { result } = renderHook(() => useAgentRun(vi.fn(), onMessage));
+
+    await act(async () => { await result.current.startRun('test', ['linkedin']); });
+
+    expect(result.current.agentError).not.toBeNull();
+    expect(result.current.agentError?.error_type).toBe('EMPTY_RESULT');
+  });
+});
+
+describe('useAgentRun — polling', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: false });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('transitions to completed when poll returns completed status', async () => {
+    const { server } = await import('../../mocks/server');
+    const { http, HttpResponse } = await import('msw');
+
+    // After startRun, the poll will hit GET /api/proxy/runs/:runId
+    server.use(
+      http.get('/api/proxy/runs/:runId', () =>
+        HttpResponse.json({ overall_status: 'completed', current_stage: 'scheduling' })
+      )
+    );
+
+    const onComplete = vi.fn();
+    const onMessage = vi.fn();
+    const { result } = renderHook(() => useAgentRun(onComplete, onMessage));
+
+    // Start the run
+    await act(async () => { await result.current.startRun('payroll', ['linkedin']); });
+    expect(result.current.runStatus).toBe('pending');
+
+    // Advance 5 seconds to trigger the polling interval
+    await act(async () => { await vi.advanceTimersByTimeAsync(5001); });
+
+    expect(result.current.runStatus).toBe('completed');
+    expect(onComplete).toHaveBeenCalled();
+  });
+
+  it('transitions to failed when poll returns failed status', async () => {
+    const { server } = await import('../../mocks/server');
+    const { http, HttpResponse } = await import('msw');
+
+    server.use(
+      http.get('/api/proxy/runs/:runId', () =>
+        HttpResponse.json({ overall_status: 'failed', current_stage: '' })
+      )
+    );
+
+    const onMessage = vi.fn();
+    const { result } = renderHook(() => useAgentRun(vi.fn(), onMessage));
+
+    await act(async () => { await result.current.startRun('payroll', ['linkedin']); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(5001); });
+
+    expect(result.current.runStatus).toBe('failed');
+    expect(result.current.running).toBe(false);
+    expect(onMessage).toHaveBeenCalledWith(expect.stringContaining('failed'));
+  });
+});

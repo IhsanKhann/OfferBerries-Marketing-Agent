@@ -10,9 +10,12 @@ interface Props {
   onClose: () => void;
   stepStatuses: StepStatus[];
   runId: string | null;
+  onStepClick?: (index: number) => void;
+  stepOutputs?: Array<Record<string, unknown> | null>;
+  activeStepIndex?: number;
 }
 
-export default function AgentPipelinePanel({ open, onClose, stepStatuses, runId }: Props) {
+export default function AgentPipelinePanel({ open, onClose, stepStatuses, runId, onStepClick, stepOutputs, activeStepIndex }: Props) {
   const { images: refImages, addImages: addRefImages, removeImage: removeRefImage } = useImageAttach();
   const dropRef = useRef<HTMLDivElement>(null);
   const refInputRef = useRef<HTMLInputElement>(null);
@@ -59,21 +62,44 @@ export default function AgentPipelinePanel({ open, onClose, stepStatuses, runId 
             <div className="stepper">
               {STEPS.map((step, i) => {
                 const status = stepStatuses[i] ?? 'pending';
+                const isRunning = status === 'running';
+                const prevDone = i > 0 && (stepStatuses[i - 1] ?? 'pending') === 'done';
+                const output = stepOutputs?.[i];
+                const isActive = activeStepIndex === i;
+                const clickable = !!onStepClick;
                 return (
-                  <div key={i} className="step-item">
-                    <div className={`step-dot ${status}`}>
-                      {status === 'done'
-                        ? '✓'
-                        : status === 'running'
-                        ? <span className="spinner" style={{ width: 10, height: 10, borderWidth: 1.5 }} />
-                        : status === 'failed'
-                        ? '✗'
-                        : i + 1}
+                  <div key={i}>
+                    {i > 0 && (
+                      <div className={`pipeline-connector${prevDone ? ' pipeline-connector--done' : ''}`} />
+                    )}
+                    <div
+                      role={clickable ? 'button' : undefined}
+                      tabIndex={clickable ? 0 : undefined}
+                      className={`step-item${isRunning ? ' pipeline-node--running' : ''}${clickable ? ' pipeline-step--clickable' : ''}`}
+                      onClick={clickable ? () => onStepClick!(i) : undefined}
+                      onKeyDown={clickable ? (e) => { if (e.key === 'Enter') onStepClick!(i); } : undefined}
+                    >
+                      <div className={`step-dot ${status}`}>
+                        {status === 'done'
+                          ? '✓'
+                          : status === 'running'
+                          ? <span className="spinner" style={{ width: 10, height: 10, borderWidth: 1.5 }} />
+                          : status === 'failed'
+                          ? '✗'
+                          : i + 1}
+                      </div>
+                      <div className="step-content">
+                        <div className="step-title">{step.label}</div>
+                        <div className="step-meta">{step.meta}</div>
+                      </div>
                     </div>
-                    <div className="step-content">
-                      <div className="step-title">{step.label}</div>
-                      <div className="step-meta">{step.meta}</div>
-                    </div>
+                    {isActive && output && (
+                      <div className="pipeline-step-output">
+                        <pre style={{ fontSize: 11, overflow: 'auto', maxHeight: 120 }}>
+                          {JSON.stringify(output, null, 2)}
+                        </pre>
+                      </div>
+                    )}
                   </div>
                 );
               })}

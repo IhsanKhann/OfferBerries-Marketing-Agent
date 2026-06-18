@@ -206,6 +206,12 @@ class ProjectDoc(BaseModel):
     archived_at: Optional[datetime] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+    schedule_enabled: bool = False
+    schedule_frequency: Optional[str] = None
+    schedule_cron: Optional[str] = None
+    schedule_platforms: list[str] = []
+    schedule_topic_rotation: list[str] = []
+    schedule_auto_approve: bool = False
 
 
 class ProjectCreateRequest(BaseModel):
@@ -229,3 +235,9 @@ class ProjectUpdateRequest(BaseModel):
     color: Optional[str] = None
     icon: Optional[str] = None
     starred: Optional[bool] = None
+    schedule_enabled: Optional[bool] = None
+    schedule_frequency: Optional[str] = None
+    schedule_cron: Optional[str] = None
+    schedule_platforms: Optional[list[str]] = None
+    schedule_topic_rotation: Optional[list[str]] = None
+    schedule_auto_approve: Optional[bool] = None

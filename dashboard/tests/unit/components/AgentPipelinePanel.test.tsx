@@ -212,4 +212,105 @@ describe('AgentPipelinePanel', () => {
     expect(screen.getByText('3')).toBeInTheDocument();
     expect(screen.getByText('4')).toBeInTheDocument();
   });
+
+  // --- Drop zone drag events ---
+
+  it('adds drag-over class on dragover', () => {
+    render(
+      <AgentPipelinePanel open={true} onClose={vi.fn()} stepStatuses={[...IDLE_STATUSES]} runId={null} />
+    );
+    const zone = document.querySelector('.drop-zone') as HTMLElement;
+    fireEvent.dragOver(zone, { dataTransfer: {} });
+    expect(zone).toHaveClass('drag-over');
+  });
+
+  it('removes drag-over class on dragleave', () => {
+    render(
+      <AgentPipelinePanel open={true} onClose={vi.fn()} stepStatuses={[...IDLE_STATUSES]} runId={null} />
+    );
+    const zone = document.querySelector('.drop-zone') as HTMLElement;
+    fireEvent.dragOver(zone, { dataTransfer: {} });
+    fireEvent.dragLeave(zone);
+    expect(zone).not.toHaveClass('drag-over');
+  });
+
+  it('removes drag-over class on drop', () => {
+    render(
+      <AgentPipelinePanel open={true} onClose={vi.fn()} stepStatuses={[...IDLE_STATUSES]} runId={null} />
+    );
+    const zone = document.querySelector('.drop-zone') as HTMLElement;
+    fireEvent.dragOver(zone, { dataTransfer: { files: [] } });
+    fireEvent.drop(zone, { dataTransfer: { files: [] } });
+    expect(zone).not.toHaveClass('drag-over');
+  });
+
+  // --- Phase 4: clickable nodes ---
+
+  it('step items are clickable when onStepClick is provided', async () => {
+    const onStepClick = vi.fn();
+    render(
+      <AgentPipelinePanel
+        open={true}
+        onClose={vi.fn()}
+        stepStatuses={[...DONE_STATUSES]}
+        runId={null}
+        onStepClick={onStepClick}
+      />
+    );
+    const stepBtns = document.querySelectorAll('.pipeline-step--clickable');
+    expect(stepBtns.length).toBe(4);
+  });
+
+  it('calls onStepClick with step index when step is clicked', async () => {
+    const onStepClick = vi.fn();
+    render(
+      <AgentPipelinePanel
+        open={true}
+        onClose={vi.fn()}
+        stepStatuses={[...DONE_STATUSES]}
+        runId={null}
+        onStepClick={onStepClick}
+      />
+    );
+    await userEvent.click(document.querySelectorAll('.pipeline-step--clickable')[1] as HTMLElement);
+    expect(onStepClick).toHaveBeenCalledWith(1);
+  });
+
+  it('running step has pipeline-node--running class', () => {
+    render(
+      <AgentPipelinePanel
+        open={true}
+        onClose={vi.fn()}
+        stepStatuses={['done', 'running', 'pending', 'pending']}
+        runId={null}
+      />
+    );
+    expect(document.querySelector('.pipeline-node--running')).toBeInTheDocument();
+  });
+
+  it('shows step output when stepOutputs prop provided', () => {
+    render(
+      <AgentPipelinePanel
+        open={true}
+        onClose={vi.fn()}
+        stepStatuses={[...DONE_STATUSES]}
+        runId={null}
+        stepOutputs={[{ angles: ['AI in HR'] }, null, null, null]}
+        activeStepIndex={0}
+      />
+    );
+    expect(document.querySelector('.pipeline-step-output')).toBeInTheDocument();
+  });
+
+  it('connector has done class when preceding step is done', () => {
+    render(
+      <AgentPipelinePanel
+        open={true}
+        onClose={vi.fn()}
+        stepStatuses={['done', 'done', 'pending', 'pending']}
+        runId={null}
+      />
+    );
+    expect(document.querySelector('.pipeline-connector--done')).toBeInTheDocument();
+  });
 });

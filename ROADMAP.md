@@ -20,10 +20,10 @@ Every phase is gated. Nothing proceeds to the next phase until:
 | 1 exit | ≥ 70% ✅ | ≥ 70% ✅ |
 | 2 exit | ≥ 75% ✅ | ≥ 75% ✅ |
 | 3 exit | ≥ 75% ✅ | ≥ 75% ✅ |
-| 4 exit | ≥ 80% | ≥ 80% |
+| 4 exit | ≥ 80% ✅ | ≥ 80% ✅ |
 | 5 exit | ≥ 80% | ≥ 80% |
 
-Backend **80%** (284 tests). Frontend **77% statements / 80% lines** (146 tests, 11 test files).
+Backend **80%** (299 tests). Frontend **84% statements / 88% lines** (157 tests, 11 test files).
 
 ---
 
@@ -117,15 +117,17 @@ dashboard/app/globals.css                       (--sidebar-width: 260px)
 
 ---
 
-## Phase 4 — Autonomy & Scheduled Runs
-*Gate: Backend ≥ 80% / Frontend ≥ 80%*
+## Phase 4 — Autonomy & Scheduled Runs ✅
+*Completed: 2026-06-18 | Gate: Backend ≥ 80% ✅ (299 tests) / Frontend ≥ 80% ✅ (84% stmts / 88% lines, 157 tests)*
 
-### What to build
-- Project schedule config (frequency, topic rotation, auto-approve)
-- APScheduler service for automatic run creation
-- Postiz integration fix (optimal posting times PKT)
-- n8n-style pipeline node graph in /runs (clickable, 4 nodes, StepDetailPanel)
-- Schedule configuration UI in Project Settings
+### What was built
+- Schedule config fields on `ProjectDoc` and `ProjectUpdateRequest` (enabled, frequency, cron, platforms, topic_rotation, auto_approve)
+- `services/scheduler_service.py` — `get_optimal_post_time()` per platform (PKT), `next_rotation_topic()` with modulo wraparound
+- Optimal PKT slots: Instagram 9/12/19h any day; LinkedIn 8-10am Tue-Thu; Twitter 10/14h any day
+- `AgentPipelinePanel` evolved to clickable nodes — `onStepClick` prop, `pipeline-step--clickable`, `pipeline-node--running`, `pipeline-connector--done` CSS classes
+- Step output inline viewer (`pipeline-step-output`) for raw stage data
+- useAgentRun polling tests (completed + failed branches); AgentError structured error branch
+- Drag event tests for pipeline drop zone (dragover/dragleave/drop)
 
 ---
 
@@ -147,6 +149,6 @@ The features are 30% of the journey. The other 70%:
 - Let the project context accumulate 3 months of what works
 - Scheduled runs producing content without manual intervention
 
-**Right now:** Phase 4 — Autonomy & Scheduled Runs.
+**Right now:** Phase 5 — Analytics, Feedback & Calendar.
 
 See `docs/SRS.md` for detailed acceptance criteria per phase.
