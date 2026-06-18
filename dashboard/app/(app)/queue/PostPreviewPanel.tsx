@@ -25,13 +25,31 @@ interface Props {
 export default function PostPreviewPanel({ post, isOpen, onClose, onApprove, onReject }: Props) {
   const [editMode, setEditMode] = useState(false);
   const [editedCaption, setEditedCaption] = useState('');
+  const [editedHashtags, setEditedHashtags] = useState<string[]>([]);
+  const [newHashtag, setNewHashtag] = useState('');
   const [approving, setApproving] = useState(false);
   const [rejecting, setRejecting] = useState(false);
 
   useEffect(() => {
-    if (post) setEditedCaption(post.caption ?? '');
+    if (post) {
+      setEditedCaption(post.copy ?? post.caption ?? '');
+      setEditedHashtags(post.hashtags ?? []);
+    }
     setEditMode(false);
+    setNewHashtag('');
   }, [post]);
+
+  function addHashtag() {
+    const raw = newHashtag.trim();
+    if (!raw) return;
+    const tag = raw.startsWith('#') ? raw : `#${raw}`;
+    if (!editedHashtags.includes(tag)) setEditedHashtags(h => [...h, tag]);
+    setNewHashtag('');
+  }
+
+  function removeHashtag(tag: string) {
+    setEditedHashtags(h => h.filter(t => t !== tag));
+  }
 
   if (!post) return <div className={`post-preview-panel${isOpen ? ' open' : ''}`}><div className="post-preview-panel__inner" /></div>;
 
@@ -109,17 +127,45 @@ export default function PostPreviewPanel({ post, isOpen, onClose, onApprove, onR
             />
           </div>
 
-          {/* Hashtags derived from caption */}
-          {editedCaption && (
-            <div>
-              <div className="preview-field-label">Hashtags</div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                {editedCaption.match(/#\w+/g)?.map((tag, i) => (
-                  <span key={i} className="badge badge-muted">{tag}</span>
-                )) ?? <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>No hashtags found</span>}
-              </div>
+          {/* Hashtags (stored as a separate field, not parsed from caption) */}
+          <div>
+            <div className="preview-field-label">Hashtags</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
+              {editedHashtags.length > 0 ? (
+                editedHashtags.map((tag) => (
+                  <span key={tag} className="badge badge-muted" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    {tag}
+                    {editMode && (
+                      <button
+                        type="button"
+                        onClick={() => removeHashtag(tag)}
+                        title="Remove hashtag"
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', color: 'inherit' }}
+                      >
+                        <X size={11} />
+                      </button>
+                    )}
+                  </span>
+                ))
+              ) : (
+                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>No hashtags</span>
+              )}
             </div>
-          )}
+            {editMode && (
+              <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                <input
+                  type="text"
+                  value={newHashtag}
+                  onChange={e => setNewHashtag(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addHashtag(); } }}
+                  placeholder="Add hashtag…"
+                  className="preview-textarea"
+                  style={{ flex: 1, minHeight: 0, height: 30, padding: '4px 8px' }}
+                />
+                <button type="button" className="btn btn-secondary btn-sm" onClick={addHashtag}>Add</button>
+              </div>
+            )}
+          </div>
 
           {/* Visual preview */}
           {post.preview_url && (
