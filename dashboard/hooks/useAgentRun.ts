@@ -30,13 +30,19 @@ export const RESEARCH_MODELS = [
   { id: 'sonar-deep-research', label: 'Deep Research', badge: '−$0.056' },
 ];
 
+export const CONTENT_MODELS = [
+  { id: 'anthropic/claude-sonnet-4-6', label: 'Claude Sonnet' },
+  { id: 'anthropic/claude-haiku-4-5',  label: 'Claude Haiku' },
+  { id: 'google/gemini-2.5-flash',     label: 'Gemini Flash' },
+];
+
+// Exactly mirrors the backend STAGE_ORDER (research, content_generation,
+// visual_generation, scheduling). No fake Analytics/Self-Improve steps.
 export const STEPS = [
-  { label: 'Research',     meta: 'Perplexity API' },
-  { label: 'Generate',     meta: 'OpenRouter · Gemini' },
-  { label: 'Visual',       meta: 'Renderer · Playwright' },
-  { label: 'Queue',        meta: 'Postiz scheduling' },
-  { label: 'Analytics',    meta: 'MongoDB telemetry' },
-  { label: 'Self-Improve', meta: 'Pattern extractor' },
+  { label: 'Research',           meta: 'Perplexity' },
+  { label: 'Content Generation', meta: 'OpenRouter · Claude' },
+  { label: 'Visual Generation',  meta: 'Renderer · Playwright' },
+  { label: 'Scheduling',         meta: 'Postiz' },
 ];
 
 export function useAgentRun(onComplete: () => void, onMessage: (msg: string) => void) {
@@ -45,6 +51,7 @@ export function useAgentRun(onComplete: () => void, onMessage: (msg: string) => 
   const [currentStage, setCurrentStage] = useState('');
   const [running, setRunning]       = useState(false);
   const [researchModel, setResearchModel] = useState('sonar');
+  const [contentModel, setContentModel]   = useState('anthropic/claude-sonnet-4-6');
   const [agentError, setAgentError] = useState<AgentError | null>(null);
 
   const stepStatuses: StepStatus[] = STEPS.map((_, i) =>
@@ -87,11 +94,18 @@ export function useAgentRun(onComplete: () => void, onMessage: (msg: string) => 
     setAgentError(null);
 
     try {
-      await fetch('/api/proxy/config/research-model', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model_id: researchModel }),
-      });
+      await Promise.all([
+        fetch('/api/proxy/config/research-model', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model_id: researchModel }),
+        }),
+        fetch('/api/proxy/config/content-model', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model_id: contentModel }),
+        }),
+      ]);
     } catch { /* non-fatal */ }
 
     const res = await fetch('/api/proxy/runs', {
@@ -121,9 +135,9 @@ export function useAgentRun(onComplete: () => void, onMessage: (msg: string) => 
         notify.error('Failed to start', msg);
       }
     }
-  }, [researchModel, onMessage, onComplete]);
+  }, [researchModel, contentModel, onMessage, onComplete]);
 
   const clearError = useCallback(() => setAgentError(null), []);
 
-  return { runId, runStatus, currentStage, running, researchModel, setResearchModel, agentError, clearError, startRun, stepStatuses };
+  return { runId, runStatus, currentStage, running, researchModel, setResearchModel, contentModel, setContentModel, agentError, clearError, startRun, stepStatuses };
 }

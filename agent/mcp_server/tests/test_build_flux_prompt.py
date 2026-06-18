@@ -3,7 +3,8 @@ import os, sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import pytest
-from main import build_flux_prompt, VisualBrief
+from tools.visual import build_flux_prompt
+from schemas import VisualBrief
 
 
 class TestBuildFluxPrompt:
@@ -37,10 +38,10 @@ class TestBuildFluxPrompt:
         prompt = build_flux_prompt(vb, "linkedin")
         assert "NEGATIVE" in prompt or "blurry" in prompt or "watermark" in prompt
 
-    def test_square_format_for_linkedin(self):
+    def test_landscape_format_for_linkedin(self):
         vb = VisualBrief(headline="H", subtext="S", visual_mood="clean", layout_hint="stat")
         prompt = build_flux_prompt(vb, "linkedin")
-        assert "square" in prompt.lower()
+        assert "landscape" in prompt.lower() or "1200" in prompt
 
     def test_landscape_format_for_twitter(self):
         vb = VisualBrief(headline="H", subtext="S", visual_mood="clean", layout_hint="stat")

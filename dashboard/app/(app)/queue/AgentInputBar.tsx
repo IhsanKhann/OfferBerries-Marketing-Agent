@@ -1,7 +1,7 @@
 'use client';
 import { useRef, useState, KeyboardEvent } from 'react';
 import { Paperclip, Image, Wand2 } from 'lucide-react';
-import { RESEARCH_MODELS } from '../../../hooks/useAgentRun';
+import { RESEARCH_MODELS, CONTENT_MODELS } from '../../../hooks/useAgentRun';
 
 interface Props {
   topic: string;
@@ -10,6 +10,8 @@ interface Props {
   onRun: () => void;
   researchModel: string;
   setResearchModel: (id: string) => void;
+  contentModel: string;
+  setContentModel: (id: string) => void;
   onAttachFiles: (files: FileList) => void;
   onAttachImages: (files: FileList) => void;
 }
@@ -17,6 +19,7 @@ interface Props {
 export default function AgentInputBar({
   topic, setTopic, running, onRun,
   researchModel, setResearchModel,
+  contentModel, setContentModel,
   onAttachFiles, onAttachImages,
 }: Props) {
   const [focused, setFocused] = useState(false);
@@ -81,21 +84,32 @@ export default function AgentInputBar({
           disabled={running}
         />
 
-        {/* Right cluster: model chips + run button */}
+        {/* Right cluster: two model selectors + run button */}
         <div className="input-right-cluster">
-          {RESEARCH_MODELS.map(m => (
-            <button
-              key={m.id}
-              type="button"
-              className={`input-cost-chip${researchModel === m.id ? ' active' : ''}`}
-              onClick={() => setResearchModel(m.id)}
-              title={m.label}
-              disabled={running}
-            >
-              {m.label}
-              <span style={{ opacity: 0.7, fontSize: 10 }}>{m.badge}</span>
-            </button>
-          ))}
+          <select
+            className="model-select"
+            value={researchModel}
+            onChange={e => setResearchModel(e.target.value)}
+            disabled={running}
+            title="Research model (Perplexity)"
+            aria-label="Research model"
+          >
+            {RESEARCH_MODELS.map(m => (
+              <option key={m.id} value={m.id}>{m.label} {m.badge}</option>
+            ))}
+          </select>
+          <select
+            className="model-select"
+            value={contentModel}
+            onChange={e => setContentModel(e.target.value)}
+            disabled={running}
+            title="Content model"
+            aria-label="Content model"
+          >
+            {CONTENT_MODELS.map(m => (
+              <option key={m.id} value={m.id}>{m.label}</option>
+            ))}
+          </select>
           <button
             type="button"
             className="input-run-btn"

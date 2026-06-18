@@ -8,6 +8,10 @@ export interface PreviewPost {
   status: string;
   caption?: string;
   preview_url?: string;
+  copy?: string;
+  hashtags?: string[];
+  cta?: string;
+  hook?: string;
 }
 
 export function usePostPreview() {

@@ -4,15 +4,12 @@ from unittest.mock import AsyncMock, patch, MagicMock
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from main import (
-    tool_research_trends,
-    tool_generate_content,
-    tool_generate_visual,
-    tool_queue_post,
-    tool_get_analytics,
-    ResearchBrief,
-    PlatformContent,
-)
+from tools.research import tool_research_trends
+from tools.content import tool_generate_content
+from tools.visual import tool_generate_visual
+from tools.queue import tool_queue_post
+from tools.analytics import tool_get_analytics
+from schemas import ResearchBrief, PlatformContent
 
 
 MOCK_PERPLEXITY_RESP = {
@@ -103,7 +100,10 @@ async def test_generate_visual_template_returns_png():
 @pytest.mark.asyncio
 async def test_queue_post_returns_queued_post():
     with patch("main.db") as mock_db:
-        mock_db.__getitem__ = MagicMock(return_value=MagicMock(insert_one=AsyncMock()))
+        mock_coll = MagicMock()
+        mock_coll.insert_one = AsyncMock()
+        mock_coll.update_one = AsyncMock()
+        mock_db.__getitem__ = MagicMock(return_value=mock_coll)
         with patch.dict(os.environ, {"POSTIZ_SECRET": ""}):
             result = await tool_queue_post(
                 platform="linkedin",
@@ -111,6 +111,7 @@ async def test_queue_post_returns_queued_post():
                 image_path="/app/output/test.png",
                 scheduled_at="2026-06-16T10:00:00Z",
                 tenant_id="owner-tenant",
+                run_id="test-run-id",
             )
 
     assert "postiz_id" in result

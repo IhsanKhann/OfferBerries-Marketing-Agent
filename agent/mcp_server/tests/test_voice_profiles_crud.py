@@ -7,7 +7,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from httpx import AsyncClient, ASGITransport
 
 import main
-from main import DEFAULT_VOICE_PROFILES, build_content_prompt, VoiceProfileDoc
+from constants import DEFAULT_VOICE_PROFILES
+from tools.content import build_content_prompt
+from schemas import VoiceProfileDoc
 from auth import TenantContext
 
 OWNER_KEY = os.getenv("OWNER_API_KEY", "ofb_owner_test0000000000000000000000000000000")

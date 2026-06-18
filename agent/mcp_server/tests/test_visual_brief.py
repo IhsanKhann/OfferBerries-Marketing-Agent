@@ -6,7 +6,8 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import main
-from main import tool_generate_visual_brief, VisualBrief
+from tools.visual import tool_generate_visual_brief
+from schemas import VisualBrief
 
 
 MOCK_BRIEF = {

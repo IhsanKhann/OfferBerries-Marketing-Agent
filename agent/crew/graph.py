@@ -7,13 +7,15 @@ from typing import Optional, TypedDict
 import httpx
 from langgraph.graph import END, START, StateGraph
 
+from graph_config import get_visual_source
+
 logger = logging.getLogger("crew.graph")
 
 MCP_URL = os.getenv("MCP_SERVER_URL", "http://mcp-server:8000")
 OWNER_KEY = os.getenv("OWNER_API_KEY", "")
 
 
-class AgentState(TypedDict):
+class AgentState(TypedDict, total=False):
     topic: str
     platform_filter: list[str]
     brief: Optional[dict]
@@ -24,6 +26,9 @@ class AgentState(TypedDict):
     errors: list[str]
     run_id: str
     dry_run: bool
+    content_model: str
+    research_model: str
+    raw_topic: str
 
 
 async def _call_tool(tool_name: str, arguments: dict, api_key: str = None, run_id: str = "") -> dict:
@@ -45,8 +50,13 @@ async def _call_tool(tool_name: str, arguments: dict, api_key: str = None, run_i
 async def research_node(state: AgentState) -> AgentState:
     logger.info(f"[{state['run_id']}] Research node starting for topic: {state['topic']}")
 
+    research_model = state.get("research_model") or "sonar"
     try:
-        brief = await _call_tool("research_trends", {"topic": state["topic"], "platform": "all"}, run_id=state["run_id"])
+        brief = await _call_tool(
+            "research_trends",
+            {"topic": state["topic"], "platform": "all", "model": research_model},
+            run_id=state["run_id"],
+        )
         state["brief"] = brief
     except Exception as e:
         state["errors"].append(f"research_trends error: {e}")
@@ -70,12 +80,24 @@ async def research_node(state: AgentState) -> AgentState:
                     if isinstance(posts, list):
                         competitor_posts.extend(posts)
                 except Exception as e:
-                    state["errors"].append(f"scrape {handle}/{platform}: {e}")
+                    # Competitor scraping is optional enrichment — log but never
+                    # count it as a pipeline error (it must not trip the error gate).
+                    logger.warning(f"[{state['run_id']}] competitor scrape {handle}/{platform} failed: {e}")
 
         state["competitor_data"] = competitor_posts
+        # Only attach REAL competitor insights — never a fabricated count.
         if competitor_posts and state.get("brief"):
             state["brief"]["platform_notes"] = state["brief"].get("platform_notes", {})
-            state["brief"]["platform_notes"]["competitor_insights"] = f"Analysed {len(competitor_posts)} competitor posts"
+            insights = [
+                {
+                    "handle": p.get("handle", ""),
+                    "platform": p.get("platform", ""),
+                    "text": (p.get("text", "") or "")[:280],
+                    "likes": p.get("likes", 0),
+                }
+                for p in competitor_posts[:5]
+            ]
+            state["brief"]["platform_notes"]["competitor_insights"] = json.dumps(insights)
 
     logger.info(f"[{state['run_id']}] Research complete: {len(state.get('brief', {}).get('trending_angles', []))} angles")
     return state
@@ -89,11 +111,12 @@ async def content_node(state: AgentState) -> AgentState:
 
     brief = state.get("brief", {})
     platform_content = {}
+    content_model = state.get("content_model") or "anthropic/claude-sonnet-4-6"
 
     for platform in state["platform_filter"]:
         run_id = state["run_id"]
         try:
-            content = await _call_tool("generate_content", {"brief": brief, "platform": platform}, run_id=run_id)
+            content = await _call_tool("generate_content", {"brief": brief, "platform": platform, "model": content_model}, run_id=run_id)
             if content:
                 platform_content[platform] = content
 
@@ -106,7 +129,7 @@ async def content_node(state: AgentState) -> AgentState:
                     try:
                         slide_content = await _call_tool(
                             "generate_content",
-                            {"brief": slide_brief, "platform": "linkedin"},
+                            {"brief": slide_brief, "platform": "linkedin", "model": content_model},
                             run_id=run_id,
                         )
                         if slide_content:
@@ -146,7 +169,7 @@ async def visual_node(state: AgentState) -> AgentState:
         if not isinstance(content, dict):
             continue
         template_id = template_map.get(platform, "announcement-card")
-        source = "open_design" if platform == "instagram" else "template"
+        source = get_visual_source(platform)
         run_id = state["run_id"]
 
         # D1: Generate visual brief to give the renderer richer context

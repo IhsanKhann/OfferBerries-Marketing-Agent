@@ -5,7 +5,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 import asyncio
 import json
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 from httpx import AsyncClient, ASGITransport
 
@@ -57,19 +57,22 @@ AUTH_HEADERS = {"X-API-Key": OWNER_KEY}
 class TestCreateRun:
     @pytest.mark.asyncio
     async def test_create_run_returns_201(self, app_with_mocks, mock_db):
+        import run_weekly
         mock_coll = MagicMock()
         mock_coll.insert_one = AsyncMock()
         mock_coll.create_index = AsyncMock()
         mock_db.__getitem__ = MagicMock(return_value=mock_coll)
 
-        with patch("run_weekly.execute_pipeline", new_callable=AsyncMock):
-            with patch("asyncio.create_task"):
-                async with AsyncClient(transport=ASGITransport(app=app_with_mocks), base_url="http://test") as client:
-                    resp = await client.post(
-                        "/runs",
-                        json={"topic": "payroll", "platforms": ["linkedin"]},
-                        headers=AUTH_HEADERS,
-                    )
+        mock_pool = AsyncMock()
+        mock_pool.enqueue_job = AsyncMock()
+        run_weekly.arq_pool = mock_pool
+
+        async with AsyncClient(transport=ASGITransport(app=app_with_mocks), base_url="http://test") as client:
+            resp = await client.post(
+                "/runs",
+                json={"topic": "payroll", "platforms": ["linkedin"]},
+                headers=AUTH_HEADERS,
+            )
 
         assert resp.status_code == 201
         body = resp.json()
@@ -84,22 +87,26 @@ class TestCreateRun:
 
     @pytest.mark.asyncio
     async def test_create_run_response_shape(self, app_with_mocks, mock_db):
+        import run_weekly
         mock_coll = MagicMock()
         mock_coll.insert_one = AsyncMock()
         mock_coll.create_index = AsyncMock()
         mock_db.__getitem__ = MagicMock(return_value=mock_coll)
 
-        with patch("asyncio.create_task"):
-            async with AsyncClient(transport=ASGITransport(app=app_with_mocks), base_url="http://test") as client:
-                resp = await client.post(
-                    "/runs",
-                    json={
-                        "topic": "HR compliance",
-                        "platforms": ["linkedin", "instagram"],
-                        "execution_mode": "controlled",
-                    },
-                    headers=AUTH_HEADERS,
-                )
+        mock_pool = AsyncMock()
+        mock_pool.enqueue_job = AsyncMock()
+        run_weekly.arq_pool = mock_pool
+
+        async with AsyncClient(transport=ASGITransport(app=app_with_mocks), base_url="http://test") as client:
+            resp = await client.post(
+                "/runs",
+                json={
+                    "topic": "HR compliance",
+                    "platforms": ["linkedin", "instagram"],
+                    "execution_mode": "controlled",
+                },
+                headers=AUTH_HEADERS,
+            )
 
         assert resp.status_code == 201
         body = resp.json()
@@ -161,10 +168,10 @@ class TestCancelRun:
         mock_coll.create_index = AsyncMock()
         mock_db.__getitem__ = MagicMock(return_value=mock_coll)
 
-        with patch("run_weekly.cancel_run") as mock_cancel:
+        with patch("run_weekly.cancel_run", new_callable=AsyncMock) as mock_cancel:
             async with AsyncClient(transport=ASGITransport(app=app_with_mocks), base_url="http://test") as client:
                 resp = await client.delete("/runs/test-run-id", headers=AUTH_HEADERS)
 
         assert resp.status_code == 200
         assert resp.json()["cancelled"] is True
-        mock_cancel.assert_called_once_with("test-run-id")
+        mock_cancel.assert_called_once_with(ANY, "test-run-id")

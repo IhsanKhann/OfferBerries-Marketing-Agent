@@ -5,6 +5,14 @@
 }
 
 agent.{$DOMAIN} {
+    # MCP SSE transport — must be proxied directly; Next.js cannot stream SSE
+    route /sse {
+        reverse_proxy mcp-server:8000
+    }
+    route /messages/* {
+        reverse_proxy mcp-server:8000
+    }
+
     route /postiz/* {
         uri strip_prefix /postiz
         reverse_proxy postiz:4200

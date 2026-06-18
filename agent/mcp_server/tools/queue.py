@@ -18,6 +18,7 @@ async def tool_queue_post(
     image_path: str,
     scheduled_at: str,
     tenant_id: str,
+    run_id: str,
     preview_url: str = "",
 ) -> dict:
     import main as _m
@@ -45,16 +46,29 @@ async def tool_queue_post(
             logger.warning(f"Postiz unavailable: {e}, using mock ID")
         queued = QueuedPost(postiz_id=postiz_id, platform=platform, scheduled_at=scheduled_at, preview_url=preview_url)
 
-    await _m.db["posts"].insert_one({
+    now = datetime.now(timezone.utc)
+    fields = {
         "tenant_id": tenant_id,
+        "run_id": run_id,
         "platform": platform,
         "caption": caption,
         "caption_hash": hashlib.sha256(caption.encode()).hexdigest(),
         "postiz_id": queued.postiz_id,
         "preview_url": preview_url,
         "scheduled_at": scheduled_at,
-        "status": "queued",
-        "created_at": datetime.now(timezone.utc),
-    })
+        "status": "scheduled",
+        "updated_at": now,
+    }
+    # Upsert onto the post already persisted at content time (Fix 4) so we update
+    # it to "scheduled" instead of creating a duplicate. Fall back to insert when
+    # no run_id is available (legacy callers).
+    if run_id:
+        await _m.db["posts"].update_one(
+            {"run_id": run_id, "platform": platform},
+            {"$set": fields, "$setOnInsert": {"created_at": now}},
+            upsert=True,
+        )
+    else:
+        await _m.db["posts"].insert_one({**fields, "created_at": now})
 
     return queued.model_dump()

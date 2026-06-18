@@ -7,10 +7,16 @@ import httpx
 import main as _m
 from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import Response as FastAPIResponse
+from pydantic import BaseModel
 
+from schemas import PerformanceRating
 from tools.analytics import tool_get_analytics
 
 router = APIRouter()
+
+
+class RatePostRequest(BaseModel):
+    rating: PerformanceRating
 
 
 @router.get("/queue")
@@ -49,6 +55,23 @@ async def rest_approve_post(
     if result.modified_count == 0:
         raise HTTPException(status_code=404, detail="Post not found")
     return {"approved": True, "post_id": post_id}
+
+
+@router.patch("/posts/{post_id}/rate")
+async def rest_rate_post(
+    post_id: str,
+    req: RatePostRequest,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    tenant = await _m.get_tenant(x_api_key, authorization)
+    result = await _m.db["posts"].update_one(
+        {"postiz_id": post_id, "tenant_id": tenant.tenant_id},
+        {"$set": {"performance_rating": req.rating.value, "rated_at": datetime.now(timezone.utc)}},
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Post not found")
+    return {"rated": True, "post_id": post_id, "rating": req.rating.value}
 
 
 @router.delete("/queue/{post_id}")

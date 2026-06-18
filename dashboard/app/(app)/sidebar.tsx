@@ -5,9 +5,10 @@ import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard, BarChart2, Layout, Settings, CreditCard,
   Users, Monitor, Activity, ChevronLeft, ChevronRight, LogOut,
-  PlayCircle, Wand2, Search,
+  PlayCircle, Wand2, Search, FolderOpen, Plus,
 } from 'lucide-react';
 import { isToday, isYesterday, isWithinInterval, subDays, formatDistanceToNow } from 'date-fns';
+import { useProjects } from '../../hooks/useProjects';
 
 const NAV_MAIN = [
   { href: '/queue',     label: 'Queue',     icon: LayoutDashboard },
@@ -56,6 +57,7 @@ export function Sidebar() {
   const [runs, setRuns] = useState<RunSummary[]>([]);
   const [search, setSearch] = useState('');
   const pathname = usePathname();
+  const { projects } = useProjects();
 
   const fetchRuns = useCallback(async () => {
     try {
@@ -137,6 +139,33 @@ export function Sidebar() {
         <div className="sidebar-section-label">Account</div>
         {NAV_ACCOUNT.map(n => <NavItem key={n.href} {...n} />)}
       </nav>
+
+      {/* Projects */}
+      <div className="sidebar-projects">
+        <div className="sidebar-section-header">
+          <span className="sidebar-section-label">Projects</span>
+          <Link href="/runs/new" className="sidebar-new-icon-btn" title="New project" aria-label="New project">
+            <Plus size={12} />
+          </Link>
+        </div>
+        {projects.map(proj => {
+          const active = pathname.startsWith(`/projects/${proj.id}`);
+          return (
+            <Link
+              key={proj.id}
+              href={`/projects/${proj.id}`}
+              className={`sidebar-project-item${active ? ' active' : ''}`}
+              title={collapsed ? proj.name : undefined}
+            >
+              <span className="sidebar-project-icon" style={{ background: proj.color }}>{proj.icon}</span>
+              <span className="sidebar-project-name">{proj.name}</span>
+              {proj.run_count > 0 && (
+                <span className="sidebar-project-badge">{proj.run_count}</span>
+              )}
+            </Link>
+          );
+        })}
+      </div>
 
       {/* Run history */}
       <div className="sidebar-history">

@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from httpx import AsyncClient, ASGITransport
 
 import main
-from main import DEFAULT_TEMPLATES
+from constants import DEFAULT_TEMPLATES
 from auth import TenantContext
 
 

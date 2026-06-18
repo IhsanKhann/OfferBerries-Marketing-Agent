@@ -28,7 +28,7 @@ PERPLEXITY_COSTS: dict[str, float] = {
 }
 
 PLATFORM_DIMS = {
-    "linkedin":  (1080, 1080),
+    "linkedin":  (1200, 627),
     "twitter":   (1600, 900),
     "instagram": (1080, 1080),
     "youtube":   (1280, 720),

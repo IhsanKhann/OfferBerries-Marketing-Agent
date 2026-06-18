@@ -165,16 +165,29 @@ async def _seed_voice_profiles_for_tenant(tenant_id: str) -> None:
 from routers.queue_router import router as queue_router
 from routers.config_router import router as config_router
 from routers.admin_router import router as admin_router
+from routers.projects_router import router as projects_router
 
 app.include_router(queue_router)
 app.include_router(config_router)
 app.include_router(admin_router)
+app.include_router(projects_router)
 
 # ── Health ────────────────────────────────────────────────────────────────────
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "version": "1.0.0", "uptime_seconds": int(time.time() - _start_time)}
+    return {
+        "status": "ok",
+        "server": "offerberries-marketing-mcp",
+        "version": "1.0.0",
+        "uptime_seconds": int(time.time() - _start_time),
+        "tools": [
+            "research_trends", "scrape_competitor",
+            "generate_content", "generate_visual_brief",
+            "generate_visual", "queue_post",
+            "get_run_status", "list_projects",
+        ],
+    }
 
 # ── MCP endpoint ──────────────────────────────────────────────────────────────
 
@@ -235,7 +248,7 @@ async def _dispatch_tool(name: str, args: dict, tenant: TenantContext, run_id: s
             brief=brief,
             platform=args.get("platform", "linkedin"),
             product=args.get("product", "full_erp"),
-            model=args.get("model", "google/gemini-2.5-flash"),
+            model=args.get("model") or "anthropic/claude-sonnet-4-6",
             tenant_id=tenant.tenant_id,
             run_id=run_id,
         )
@@ -260,7 +273,7 @@ async def _dispatch_tool(name: str, args: dict, tenant: TenantContext, run_id: s
         )
     if name == "queue_post":
         from tools.queue import tool_queue_post
-        return await tool_queue_post(tenant_id=tenant.tenant_id, **args)
+        return await tool_queue_post(tenant_id=tenant.tenant_id, run_id=run_id, **args)
     if name == "get_analytics":
         from tools.analytics import tool_get_analytics
         return await tool_get_analytics(**args)

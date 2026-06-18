@@ -4,7 +4,6 @@ import logging
 import os
 
 import httpx
-from fastapi import HTTPException
 
 from constants import PERPLEXITY_COSTS
 from schemas import CompetitorPost, ResearchBrief
@@ -32,7 +31,7 @@ async def tool_research_trends(
             tenant_id=tenant_id, tool_name="research_trends", status="error",
             run_id=run_id, provider="perplexity", model=model,
         )
-        raise HTTPException(status_code=503, detail=exc.to_dict())
+        return {"error": exc.to_dict()}
 
     cost_usd = PERPLEXITY_COSTS.get(model, PERPLEXITY_COSTS["sonar"])
     await _m.log_tool_call(
@@ -41,20 +40,93 @@ async def tool_research_trends(
     )
 
     trends = result.trends
-    trend_titles = [t["title"] for t in trends]
+
+    # Route parsed trends by their classified label instead of slicing one
+    # title list into three roles. Angles prefer the (cleaned) description.
+    angles: list[str] = []
+    pain_points: list[str] = []
+    labelled_hooks: list[str] = []
+    for t in trends:
+        label = t.get("label", "angle")
+        if label == "pain_point":
+            v = (t.get("title") or t.get("description") or "").strip()
+            if v:
+                pain_points.append(v)
+        elif label == "hook":
+            v = (t.get("title") or t.get("description") or "").strip()
+            if v:
+                labelled_hooks.append(v)
+        else:
+            v = (t.get("description") or t.get("title") or "").strip()
+            if v:
+                angles.append(v)
+
+    # Suggested hooks: the first real trend's description + title as a template,
+    # then any explicitly-labelled hooks. Never just the bare title.
+    first_angle = next((t for t in trends if t.get("label", "angle") == "angle"), None)
+    hook_template = ""
+    if first_angle:
+        ttl = (first_angle.get("title") or "").strip()
+        dsc = (first_angle.get("description") or "").strip()
+        if dsc and ttl and dsc != ttl:
+            hook_template = f"{ttl} — {dsc}"
+        else:
+            hook_template = ttl or dsc
+    suggested_hooks = [hook_template] + labelled_hooks
+    suggested_hooks = [h for h in dict.fromkeys(suggested_hooks) if h][:5]
+
     return ResearchBrief(
         topic=topic,
-        trending_angles=trend_titles[:5],
-        pain_points=trend_titles[5:8] if len(trend_titles) > 5 else [],
-        suggested_hooks=[trend_titles[0]] if trend_titles else [],
+        trending_angles=angles[:5],
+        pain_points=pain_points[:5],
+        suggested_hooks=suggested_hooks,
         platform_notes={
             "citations": json.dumps(result.citations),
             "model_used": result.model_used,
             "raw_trends": json.dumps(trends),
             "recency_filter": recency_filter,
+            # Full Perplexity response preserved so the content prompt can use it
+            "raw_summary": result.raw_response or "",
+            # Real competitor insights are attached later by the research node if
+            # scraping succeeds; default to empty rather than fabricating a count.
+            "competitor_insights": json.dumps([]),
         },
         generated_at=__import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),
     ).model_dump()
+
+
+async def _perplexity_competitor_fallback(platform: str, handle: str) -> list:
+    """Query Perplexity sonar for recent competitor content when Apify is unavailable."""
+    px_key = os.getenv("PERPLEXITY_API_KEY", "")
+    if not px_key:
+        return []
+
+    query = f"Recent social media posts by {handle} on {platform} in 2026"
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                "https://api.perplexity.ai/chat/completions",
+                headers={"Authorization": f"Bearer {px_key}"},
+                json={
+                    "model": "sonar",
+                    "messages": [{"role": "user", "content": query}],
+                    "search_recency_filter": "month",
+                },
+            )
+            resp.raise_for_status()
+            content = resp.json()["choices"][0]["message"]["content"]
+    except Exception as exc:
+        logger.warning("Perplexity competitor fallback error for %s/%s: %s", platform, handle, exc)
+        return []
+
+    return [CompetitorPost(
+        platform=platform,
+        handle=handle,
+        text=content[:500],
+        likes=0,
+        comments=0,
+        shares=0,
+    ).model_dump()]
 
 
 async def tool_scrape_competitor(platform: str, handle: str, limit: int = 20) -> list:
@@ -66,9 +138,10 @@ async def tool_scrape_competitor(platform: str, handle: str, limit: int = 20) ->
     }
     actor = actor_map.get(platform)
     if not actor:
-        raise HTTPException(status_code=400, detail=f"Unsupported platform: {platform}")
-    if not apify_token:
+        logger.warning("scrape_competitor: unsupported platform %s", platform)
         return []
+    if not apify_token:
+        return await _perplexity_competitor_fallback(platform, handle)
 
     url_map = {
         "linkedin": f"https://www.linkedin.com/in/{handle}",
@@ -76,14 +149,18 @@ async def tool_scrape_competitor(platform: str, handle: str, limit: int = 20) ->
         "instagram": f"https://www.instagram.com/{handle}",
     }
 
-    async with httpx.AsyncClient(timeout=60) as client:
-        resp = await client.post(
-            f"https://api.apify.com/v2/acts/{actor}/run-sync-get-dataset-items",
-            headers={"Authorization": f"Bearer {apify_token}"},
-            json={"startUrls": [{"url": url_map[platform]}], "maxItems": limit},
-        )
-        resp.raise_for_status()
-        items = resp.json()
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            resp = await client.post(
+                f"https://api.apify.com/v2/acts/{actor}/run-sync-get-dataset-items",
+                headers={"Authorization": f"Bearer {apify_token}"},
+                json={"startUrls": [{"url": url_map[platform]}], "maxItems": limit},
+            )
+            resp.raise_for_status()
+            items = resp.json()
+    except Exception as exc:
+        logger.warning("scrape_competitor Apify error for %s/%s: %s — trying Perplexity fallback", platform, handle, exc)
+        return await _perplexity_competitor_fallback(platform, handle)
 
     return [
         CompetitorPost(

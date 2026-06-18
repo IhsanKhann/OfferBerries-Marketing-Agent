@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from httpx import AsyncClient, ASGITransport
 
 import main
-from main import VoiceProfile
+from schemas import VoiceProfile
 from auth import TenantContext
 
 

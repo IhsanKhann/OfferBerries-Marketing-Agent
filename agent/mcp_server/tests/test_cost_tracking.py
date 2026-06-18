@@ -6,7 +6,8 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch, call
 
 import main
-from main import _compute_openrouter_cost, log_tool_call, OPENROUTER_PRICING, PERPLEXITY_COSTS
+from constants import compute_openrouter_cost as _compute_openrouter_cost, OPENROUTER_PRICING, PERPLEXITY_COSTS
+from main import log_tool_call
 
 
 # ── _compute_openrouter_cost ───────────────────────────────────────────────
@@ -148,7 +149,8 @@ class TestGenerateContentCostCapture:
             mock_client_cls.return_value = mock_client
 
             with patch.dict(os.environ, {"OPENROUTER_API_KEY": "test-key"}):
-                result = await main.tool_generate_content(
+                from tools.content import tool_generate_content as _tgc
+                result = await _tgc(
                     brief={"topic": "payroll", "trending_angles": ["saves time"]},
                     platform="linkedin",
                     run_id="run-xyz",

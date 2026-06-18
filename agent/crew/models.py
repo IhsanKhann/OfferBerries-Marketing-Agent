@@ -70,6 +70,7 @@ class AgentRun(BaseModel):
     tenant_id: str
     topic: str
     platforms: list[str]
+    project_id: Optional[str] = None
     stages_enabled: StagesConfig = Field(default_factory=StagesConfig)
     execution_mode: Literal["automated", "controlled"] = "automated"
     stages: dict[str, Any] = Field(default_factory=_default_stages)
@@ -108,6 +109,7 @@ class CreateRunRequest(BaseModel):
     execution_mode: Literal["automated", "controlled"] = "automated"
     stages_enabled: StagesConfig = Field(default_factory=StagesConfig)
     provided_content: Optional[str] = None
+    project_id: Optional[str] = None
 
 
 class EditStageRequest(BaseModel):
