@@ -165,16 +165,29 @@ async def _seed_voice_profiles_for_tenant(tenant_id: str) -> None:
 from routers.queue_router import router as queue_router
 from routers.config_router import router as config_router
 from routers.admin_router import router as admin_router
+from routers.projects_router import router as projects_router
 
 app.include_router(queue_router)
 app.include_router(config_router)
 app.include_router(admin_router)
+app.include_router(projects_router)
 
 # ── Health ────────────────────────────────────────────────────────────────────
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "version": "1.0.0", "uptime_seconds": int(time.time() - _start_time)}
+    return {
+        "status": "ok",
+        "server": "offerberries-marketing-mcp",
+        "version": "1.0.0",
+        "uptime_seconds": int(time.time() - _start_time),
+        "tools": [
+            "research_trends", "scrape_competitor",
+            "generate_content", "generate_visual_brief",
+            "generate_visual", "queue_post",
+            "get_run_status", "list_projects",
+        ],
+    }
 
 # ── MCP endpoint ──────────────────────────────────────────────────────────────
 
