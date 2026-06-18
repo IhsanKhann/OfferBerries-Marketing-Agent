@@ -9,6 +9,8 @@ from datetime import datetime, timezone
 from typing import AsyncGenerator, Optional
 
 import redis.asyncio as aioredis
+from arq import create_pool
+from arq.connections import RedisSettings
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -26,9 +28,6 @@ from models import (
 )
 from pipeline import (
     cancel_run,
-    execute_pipeline,
-    is_cancelled,
-    rerun_stage,
     signal_resume,
 )
 
@@ -47,16 +46,38 @@ redis_client: Optional[aioredis.Redis] = None
 mongo_client: Optional[AsyncIOMotorClient] = None
 db = None
 agent_graph = None
+arq_pool = None
 
 
 @app.on_event("startup")
 async def startup():
-    global redis_client, mongo_client, db, agent_graph
+    global redis_client, mongo_client, db, agent_graph, arq_pool
     redis_client = aioredis.from_url(REDIS_URL, decode_responses=True)
     if MONGODB_URI:
         mongo_client = AsyncIOMotorClient(MONGODB_URI)
         db = mongo_client[MONGODB_DB]
     agent_graph = build_graph()
+    try:
+        arq_pool = await create_pool(RedisSettings.from_dsn(REDIS_URL))
+    except Exception as exc:
+        logger.error("Failed to create arq pool: %s", exc)
+        arq_pool = None
+    await _requeue_orphaned_runs()
+
+
+async def _requeue_orphaned_runs():
+    """Re-enqueue runs left 'running' by a previous crash/restart so a worker
+    picks them back up (idempotent: post writes upsert by run_id+platform)."""
+    if db is None or arq_pool is None:
+        return
+    try:
+        cursor = db["agent_runs"].find({"overall_status": "running"}, {"_id": 1})
+        async for doc in cursor:
+            run_id = str(doc["_id"])
+            await arq_pool.enqueue_job("execute_pipeline_job", run_id)
+            logger.info("Re-enqueued orphaned run %s", run_id)
+    except Exception as exc:
+        logger.error("Re-enqueue of orphaned runs failed: %s", exc)
 
 
 @app.on_event("shutdown")
@@ -65,6 +86,8 @@ async def shutdown():
         await redis_client.close()
     if mongo_client:
         mongo_client.close()
+    if arq_pool:
+        await arq_pool.close()
 
 
 def _require_owner(x_api_key: Optional[str]):
@@ -243,7 +266,9 @@ async def create_run(
 
     await db["agent_runs"].insert_one(run.to_mongo())
 
-    asyncio.create_task(execute_pipeline(run, db, redis_client))
+    if arq_pool is None:
+        raise HTTPException(status_code=503, detail="Job queue not available")
+    await arq_pool.enqueue_job("execute_pipeline_job", run.id)
 
     return {"run_id": run.id, "status": run.overall_status}
 
@@ -321,7 +346,7 @@ async def approve_stage(
     if stage_status != StageStatus.PAUSED.value:
         raise HTTPException(status_code=409, detail=f"Stage '{stage}' is not paused (status: {stage_status})")
 
-    resumed = signal_resume(run_id, stage, edited_output=req.edited_output)
+    resumed = await signal_resume(redis_client, run_id, stage, edited_output=req.edited_output)
     return {"approved": True, "run_id": run_id, "stage": stage, "resumed": resumed}
 
 
@@ -337,7 +362,7 @@ async def edit_stage(
         raise HTTPException(status_code=400, detail=f"Unknown stage: {stage}")
 
     # Store the edit and approve (proceed with edited output)
-    resumed = signal_resume(run_id, stage, edited_output=req.output)
+    resumed = await signal_resume(redis_client, run_id, stage, edited_output=req.output)
     return {"edited": True, "run_id": run_id, "stage": stage, "resumed": resumed}
 
 
@@ -355,9 +380,12 @@ async def reject_stage(
         raise HTTPException(status_code=503, detail="Database not available")
 
     doc = await _fetch_run_doc(run_id)
-    run = AgentRun.from_mongo({**doc, "_id": run_id})
+    # Validates the run exists before enqueuing
+    AgentRun.from_mongo({**doc, "_id": run_id})
 
-    asyncio.create_task(rerun_stage(run, stage, db, redis_client))
+    if arq_pool is None:
+        raise HTTPException(status_code=503, detail="Job queue not available")
+    await arq_pool.enqueue_job("rerun_stage_job", run_id, stage)
     return {"rejected": True, "run_id": run_id, "stage": stage}
 
 
@@ -369,7 +397,7 @@ async def resume_run(
     _require_owner(x_api_key)
     doc = await _fetch_run_doc(run_id)
     current_stage = doc.get("current_stage", "research")
-    resumed = signal_resume(run_id, current_stage)
+    resumed = await signal_resume(redis_client, run_id, current_stage)
     return {"resumed": resumed, "run_id": run_id, "stage": current_stage}
 
 
@@ -379,7 +407,7 @@ async def cancel_run_endpoint(
     x_api_key: Optional[str] = Header(None),
 ):
     _require_owner(x_api_key)
-    cancel_run(run_id)
+    await cancel_run(redis_client, run_id)
     if db is not None:
         await db["agent_runs"].update_one(
             {"_id": run_id},

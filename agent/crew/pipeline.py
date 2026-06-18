@@ -28,43 +28,75 @@ from models import (
 
 logger = logging.getLogger("crew.pipeline")
 
-# In-memory synchronisation primitives, keyed by "{run_id}:{stage}"
-_resume_events: dict[str, asyncio.Event] = {}
-_edited_outputs: dict[str, dict] = {}
-_cancelled: set[str] = set()
+# Control signals are stored in Redis (not in process memory) so they survive a
+# crash/restart and work across the web process and the arq worker process.
+_SIGNAL_TTL = 86400
+_POLL_INTERVAL = 2.0
+_CANCELLED = object()  # sentinel returned by _wait_for_resume on cancellation
 
 
-# ── Public control API (called by HTTP handlers) ───────────────────────────
-
-def get_or_create_resume_event(run_id: str, stage: str) -> asyncio.Event:
-    key = f"{run_id}:{stage}"
-    if key not in _resume_events:
-        _resume_events[key] = asyncio.Event()
-    return _resume_events[key]
+def _cancel_key(run_id: str) -> str:
+    return f"run:{run_id}:cancel"
 
 
-def signal_resume(run_id: str, stage: str, edited_output: Optional[dict] = None) -> bool:
-    """Unblock a paused stage.  Returns False if no event was waiting."""
-    key = f"{run_id}:{stage}"
+def _resume_key(run_id: str, stage: str) -> str:
+    return f"run:{run_id}:resume:{stage}"
+
+
+def _edit_key(run_id: str, stage: str) -> str:
+    return f"run:{run_id}:edit:{stage}"
+
+
+# ── Public control API (called by HTTP handlers, in the web process) ────────
+
+async def signal_resume(redis_client, run_id: str, stage: str, edited_output: Optional[dict] = None) -> bool:
+    """Unblock a paused stage by writing a Redis signal the worker polls for."""
     if edited_output is not None:
-        _edited_outputs[key] = edited_output
-    event = _resume_events.get(key)
-    if event:
-        event.set()
-        return True
-    return False
+        await redis_client.set(_edit_key(run_id, stage), json.dumps(edited_output), ex=_SIGNAL_TTL)
+    await redis_client.set(_resume_key(run_id, stage), "1", ex=_SIGNAL_TTL)
+    return True
 
 
-def cancel_run(run_id: str):
-    _cancelled.add(run_id)
+async def cancel_run(redis_client, run_id: str) -> None:
+    await redis_client.set(_cancel_key(run_id), "1", ex=_SIGNAL_TTL)
+
+
+async def is_cancelled(redis_client, run_id: str) -> bool:
+    return bool(await redis_client.exists(_cancel_key(run_id)))
+
+
+async def _wait_for_resume(redis_client, run_id: str, stage: str):
+    """Poll Redis until the stage is resumed or the run is cancelled.
+
+    Returns the edited output dict (or None) on resume, or the _CANCELLED
+    sentinel if the run was cancelled while paused.
+    """
+    resume_key = _resume_key(run_id, stage)
+    edit_key = _edit_key(run_id, stage)
+    while True:
+        if await redis_client.exists(_cancel_key(run_id)):
+            return _CANCELLED
+        if await redis_client.exists(resume_key):
+            edited_raw = await redis_client.get(edit_key)
+            await redis_client.delete(resume_key, edit_key)
+            if edited_raw:
+                try:
+                    return json.loads(edited_raw)
+                except (ValueError, TypeError):
+                    return None
+            return None
+        await asyncio.sleep(_POLL_INTERVAL)
+
+
+async def _clear_signals(redis_client, run_id: str) -> None:
+    keys = [_cancel_key(run_id)]
     for stage in STAGE_ORDER:
-        event = _resume_events.get(f"{run_id}:{stage}")
-        if event:
-            event.set()
-
-
-def is_cancelled(run_id: str) -> bool:
-    return run_id in _cancelled
+        keys.append(_resume_key(run_id, stage))
+        keys.append(_edit_key(run_id, stage))
+    try:
+        await redis_client.delete(*keys)
+    except Exception:
+        pass
 
 
 # ── Config helpers ─────────────────────────────────────────────────────────
@@ -253,9 +285,9 @@ async def execute_pipeline(run: AgentRun, db, redis_client):
     await _set_overall_status(db, redis_client, run_id, "running")
 
     for stage_name in STAGE_ORDER:
-        if is_cancelled(run_id):
+        if await is_cancelled(redis_client, run_id):
             await _set_overall_status(db, redis_client, run_id, "cancelled")
-            _cleanup(run_id)
+            await _clear_signals(redis_client, run_id)
             return
 
         config_field = STAGE_TO_CONFIG_FIELD.get(stage_name, stage_name)
@@ -291,7 +323,7 @@ async def execute_pipeline(run: AgentRun, db, redis_client):
                 completed_at=datetime.now(timezone.utc),
             ))
             await _set_overall_status(db, redis_client, run_id, "failed")
-            _cleanup(run_id)
+            await _clear_signals(redis_client, run_id)
             return
 
         output = _extract_output(stage_name, state)
@@ -309,18 +341,13 @@ async def execute_pipeline(run: AgentRun, db, redis_client):
 
         if run.execution_mode == "controlled":
             await _set_overall_status(db, redis_client, run_id, "paused_for_review")
-            event = get_or_create_resume_event(run_id, stage_name)
-            await event.wait()
-            event.clear()
-            _resume_events.pop(f"{run_id}:{stage_name}", None)
+            edited = await _wait_for_resume(redis_client, run_id, stage_name)
 
-            if is_cancelled(run_id):
+            if edited is _CANCELLED:
                 await _set_overall_status(db, redis_client, run_id, "cancelled")
-                _cleanup(run_id)
+                await _clear_signals(redis_client, run_id)
                 return
 
-            edit_key = f"{run_id}:{stage_name}"
-            edited = _edited_outputs.pop(edit_key, None)
             if edited is not None:
                 state = _apply_edit(stage_name, state, edited)
                 # Re-persist so human edits are reflected in the queued posts
@@ -330,7 +357,7 @@ async def execute_pipeline(run: AgentRun, db, redis_client):
             await _set_overall_status(db, redis_client, run_id, "running")
 
     await _set_overall_status(db, redis_client, run_id, "completed")
-    _cleanup(run_id)
+    await _clear_signals(redis_client, run_id)
 
 
 async def rerun_stage(run: AgentRun, stage_name: str, db, redis_client):
@@ -417,13 +444,6 @@ def _apply_edit(stage_name: str, state: dict, edited: dict) -> dict:
     elif stage_name == "visual_generation":
         state["visual_assets"] = edited
     return state
-
-
-def _cleanup(run_id: str):
-    _cancelled.discard(run_id)
-    for stage in STAGE_ORDER:
-        _resume_events.pop(f"{run_id}:{stage}", None)
-        _edited_outputs.pop(f"{run_id}:{stage}", None)
 
 
 # ── MongoDB / Redis persistence ────────────────────────────────────────────
