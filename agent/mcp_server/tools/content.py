@@ -137,6 +137,12 @@ def build_content_prompt(
         "- Hook the reader in the first line with a specific concrete claim or question\n"
         "- End with a single sharp CTA, not a vague invitation"
     )
+    if topic_str.strip():
+        role_text += (
+            f"\n\nThe user researched: {topic_str}. Your job is to use these insights to create "
+            "content that markets OfferBerries' relevant product features to Pakistani SMBs — "
+            "not to explain the topic itself."
+        )
     sections: list[str] = []
     if brand_identity.strip():
         sections.append("--- BRAND IDENTITY ---\n" + brand_identity.strip())

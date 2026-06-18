@@ -26,6 +26,7 @@ class AgentState(TypedDict, total=False):
     dry_run: bool
     content_model: str
     research_model: str
+    raw_topic: str
 
 
 async def _call_tool(tool_name: str, arguments: dict, api_key: str = None, run_id: str = "") -> dict:

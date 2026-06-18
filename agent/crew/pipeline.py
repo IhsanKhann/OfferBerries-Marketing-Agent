@@ -11,8 +11,11 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import uuid
 from datetime import datetime, timezone
+
+import httpx
 from typing import Any, Optional
 
 from models import (
@@ -75,6 +78,44 @@ async def _get_config(db, tenant_id: str, key: str, default: str) -> str:
     except Exception:
         pass
     return default
+
+
+# ── Topic extraction ───────────────────────────────────────────────────────
+
+async def _extract_topic(raw_topic: str, model: str = "anthropic/claude-sonnet-4-6") -> str:
+    """Turn a conversational request into a clean 3-8 word research topic so the
+    agent researches/markets the product, not the user's literal sentence."""
+    key = os.getenv("OPENROUTER_API_KEY", "")
+    if not key or not raw_topic.strip():
+        return raw_topic
+    system = "You extract clean research topics from conversational user inputs."
+    user = (
+        "Extract the core research topic from this request, as a clean 3-8 word phrase "
+        "suitable for a Perplexity search query. Remove conversational filler. "
+        "Return ONLY the topic phrase, nothing else.\n"
+        f'Input: "{raw_topic}"'
+    )
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={"Authorization": f"Bearer {key}"},
+                json={
+                    "model": model,
+                    "max_tokens": 40,
+                    "messages": [
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": user},
+                    ],
+                },
+            )
+            resp.raise_for_status()
+            text = resp.json()["choices"][0]["message"]["content"].strip()
+        clean = text.split("\n")[0].strip().strip('"').strip()
+        return clean or raw_topic
+    except Exception as exc:
+        logger.warning("Topic extraction failed (%s); using raw topic", exc)
+        return raw_topic
 
 
 # ── Post persistence ───────────────────────────────────────────────────────
@@ -177,6 +218,18 @@ async def execute_pipeline(run: AgentRun, db, redis_client):
         db, run.tenant_id, "content_model", "anthropic/claude-sonnet-4-6"
     )
     state["research_model"] = await _get_config(db, run.tenant_id, "research_model", "sonar")
+
+    # Sanitize the conversational topic into a clean research query
+    raw_topic = run.topic
+    clean_topic = await _extract_topic(raw_topic, state["content_model"])
+    state["raw_topic"] = raw_topic
+    state["topic"] = clean_topic
+    if clean_topic != raw_topic:
+        logger.info("[%s] Topic extracted: %r -> %r", run_id, raw_topic, clean_topic)
+    await db["agent_runs"].update_one(
+        {"_id": run_id},
+        {"$set": {"raw_topic": raw_topic, "clean_topic": clean_topic}},
+    )
 
     # Pre-populate with user-provided content when content stage is skipped
     if run.provided_content and not run.stages_enabled.content_generation:
@@ -295,8 +348,10 @@ async def rerun_stage(run: AgentRun, stage_name: str, db, redis_client):
         return
 
     snapshot = run.state_snapshot or {}
+    topic_doc = await db["agent_runs"].find_one({"_id": run.id}, {"clean_topic": 1})
+    topic = (topic_doc or {}).get("clean_topic") or run.topic
     state: AgentState = {
-        "topic": run.topic,
+        "topic": topic,
         "platform_filter": run.platforms,
         "brief": snapshot.get("brief"),
         "competitor_data": snapshot.get("competitor_data", []),
