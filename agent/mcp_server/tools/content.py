@@ -118,7 +118,7 @@ def build_content_prompt(
 
     platform_instructions: dict[str, str] = {
         "linkedin": f"Professional, insight-driven, educational tone. End with a question. Max {char_limit} chars.",
-        "twitter": "Punchy, opinionated. Use line breaks. Max 4 tweets at 280 chars each. Thread format.",
+        "twitter": f"One punchy, opinionated tweet of {char_limit} characters or fewer. Lead with the strongest claim or stat. No thread, no hashtag spam.",
         "instagram": "Visual-first caption, story-driven.",
         "youtube": "60-second script. Hook in first 3 seconds. Problem→Solution→CTA.",
         "email": "Subject line + 150-word body. One CTA link.",
@@ -189,6 +189,29 @@ def build_content_prompt(
         '}'
     )
     return system_prompt, user_prompt
+
+
+async def _shorten_copy(openrouter_key: str, model: str, platform: str, copy: str, char_limit: int) -> str:
+    """Ask the model to shorten over-limit copy. One retry; never slices."""
+    prompt = (
+        f"Shorten this {platform} post to under {char_limit} characters without losing "
+        f"the core message or the hook. Return only the shortened post text — no quotes, "
+        f"no commentary:\n\n{copy}"
+    )
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            resp = await client.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={"Authorization": f"Bearer {openrouter_key}"},
+                json={"model": model, "max_tokens": 600, "messages": [{"role": "user", "content": prompt}]},
+            )
+            resp.raise_for_status()
+            shortened = resp.json()["choices"][0]["message"]["content"].strip()
+        shortened = shortened.strip().strip('"').strip()
+        return shortened or copy
+    except Exception as exc:
+        logger.warning("Shorten retry failed for %s: %s", platform, exc)
+        return copy
 
 
 def _parse_content_response(raw: str, topic: str, platform: str) -> tuple[str, list[str], str]:
@@ -289,7 +312,18 @@ async def tool_generate_content(
     )
 
     copy, hashtags, cta = _parse_content_response(raw, topic_str, platform)
-    copy = copy[:char_limit]
+    # Validate length; if over, ask the model to shorten — never slice mid-word.
+    if len(copy) > char_limit:
+        logger.info(
+            "%s content is %d chars (limit %d) — requesting a shortened version",
+            platform, len(copy), char_limit,
+        )
+        copy = await _shorten_copy(openrouter_key, actual_model, platform, copy, char_limit)
+        if len(copy) > char_limit:
+            logger.warning(
+                "%s content still over limit after shorten (%d > %d); keeping full text",
+                platform, len(copy), char_limit,
+            )
     words = copy.split()
     return PlatformContent(
         platform=platform,
