@@ -1882,3 +1882,85 @@ tbody tr:hover td { background: var(--bg-subtle); }
   color: var(--hr-text);
   border-color: var(--hr-border);
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   MODEL SELECT — input bar dropdowns
+═══════════════════════════════════════════════════════════════ */
+.model-select {
+  font-size: 11px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-canvas);
+  color: var(--text-secondary);
+  padding: 3px 6px;
+  max-width: 130px;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   POST PREVIEW PANEL — header & hashtag edit UI
+═══════════════════════════════════════════════════════════════ */
+.preview-platform-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.preview-platform-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  text-transform: capitalize;
+}
+
+.preview-platform-time {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.preview-hashtags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+
+.preview-hashtag-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.preview-hashtag-remove {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  color: inherit;
+}
+
+.preview-hashtags-empty {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.preview-add-hashtag-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.preview-add-hashtag-input {
+  flex: 1;
+  min-height: 0;
+  height: 30px;
+  padding: 4px 8px;
+}
+
+.post-preview-panel__actions .btn-sm {
+  gap: 4px;
+}

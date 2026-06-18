@@ -90,20 +90,12 @@ export default function PostPreviewPanel({ post, isOpen, onClose, onApprove, onR
       <div className="post-preview-panel__inner">
         {/* Header */}
         <div className="post-preview-panel__header">
-          <div
-            style={{
-              width: 28, height: 28, borderRadius: 'var(--radius-md)',
-              background: color, display: 'flex', alignItems: 'center', justifyContent: 'center',
-              flexShrink: 0,
-            }}
-          >
+          <div className="preview-platform-icon" style={{ background: color }}>
             <Icon size={14} color="white" />
           </div>
           <div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', textTransform: 'capitalize' }}>
-              {post.platform}
-            </div>
-            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+            <div className="preview-platform-name">{post.platform}</div>
+            <div className="preview-platform-time">
               {new Date(post.scheduled_at).toLocaleString('en-PK', { timeZone: 'Asia/Karachi', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
             </div>
           </div>
@@ -130,17 +122,17 @@ export default function PostPreviewPanel({ post, isOpen, onClose, onApprove, onR
           {/* Hashtags (stored as a separate field, not parsed from caption) */}
           <div>
             <div className="preview-field-label">Hashtags</div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
+            <div className="preview-hashtags">
               {editedHashtags.length > 0 ? (
                 editedHashtags.map((tag) => (
-                  <span key={tag} className="badge badge-muted" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  <span key={tag} className="badge badge-muted preview-hashtag-badge">
                     {tag}
                     {editMode && (
                       <button
                         type="button"
                         onClick={() => removeHashtag(tag)}
                         title="Remove hashtag"
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', color: 'inherit' }}
+                        className="preview-hashtag-remove"
                       >
                         <X size={11} />
                       </button>
@@ -148,19 +140,18 @@ export default function PostPreviewPanel({ post, isOpen, onClose, onApprove, onR
                   </span>
                 ))
               ) : (
-                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>No hashtags</span>
+                <span className="preview-hashtags-empty">No hashtags</span>
               )}
             </div>
             {editMode && (
-              <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+              <div className="preview-add-hashtag-row">
                 <input
                   type="text"
                   value={newHashtag}
                   onChange={e => setNewHashtag(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addHashtag(); } }}
                   placeholder="Add hashtag…"
-                  className="preview-textarea"
-                  style={{ flex: 1, minHeight: 0, height: 30, padding: '4px 8px' }}
+                  className="preview-textarea preview-add-hashtag-input"
                 />
                 <button type="button" className="btn btn-secondary btn-sm" onClick={addHashtag}>Add</button>
               </div>
@@ -194,7 +185,6 @@ export default function PostPreviewPanel({ post, isOpen, onClose, onApprove, onR
               className="btn btn-primary btn-sm"
               onClick={handleApprove}
               disabled={approving}
-              style={{ gap: 4 }}
             >
               <CheckCircle size={12} />
               {approving ? 'Scheduling…' : 'Approve & Schedule'}
@@ -221,7 +211,6 @@ export default function PostPreviewPanel({ post, isOpen, onClose, onApprove, onR
               type="button"
               className="btn btn-secondary btn-sm"
               onClick={handleDownload}
-              style={{ gap: 4 }}
             >
               <Download size={12} /> Download
             </button>
@@ -232,7 +221,6 @@ export default function PostPreviewPanel({ post, isOpen, onClose, onApprove, onR
               className="btn btn-danger btn-sm"
               onClick={handleReject}
               disabled={rejecting}
-              style={{ gap: 4 }}
             >
               <RefreshCw size={12} />
               {rejecting ? 'Removing…' : 'Reject'}

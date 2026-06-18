@@ -16,16 +16,6 @@ interface Props {
   onAttachImages: (files: FileList) => void;
 }
 
-const modelSelectStyle: React.CSSProperties = {
-  fontSize: 11,
-  border: '1px solid var(--border-default)',
-  borderRadius: 'var(--radius-md)',
-  background: 'var(--bg-canvas)',
-  color: 'var(--text-secondary)',
-  padding: '3px 6px',
-  maxWidth: 130,
-};
-
 export default function AgentInputBar({
   topic, setTopic, running, onRun,
   researchModel, setResearchModel,
@@ -97,7 +87,7 @@ export default function AgentInputBar({
         {/* Right cluster: two model selectors + run button */}
         <div className="input-right-cluster">
           <select
-            style={modelSelectStyle}
+            className="model-select"
             value={researchModel}
             onChange={e => setResearchModel(e.target.value)}
             disabled={running}
@@ -109,7 +99,7 @@ export default function AgentInputBar({
             ))}
           </select>
           <select
-            style={modelSelectStyle}
+            className="model-select"
             value={contentModel}
             onChange={e => setContentModel(e.target.value)}
             disabled={running}
