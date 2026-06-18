@@ -90,6 +90,7 @@ def build_content_prompt(
     voice: Optional[VoiceProfileDoc],
     brand_identity: str = "",
     tenant_voice: str = "",
+    raw_summary: str = "",
     extra_context: str = "",
 ) -> tuple[str, str]:
     char_limit = PLATFORM_CHAR_LIMITS.get(platform, 1300)
@@ -153,15 +154,30 @@ def build_content_prompt(
         if few_shot else ""
     )
 
+    def _numbered(items: list) -> str:
+        cleaned = [str(x).strip() for x in (items or []) if str(x).strip()]
+        return "\n".join(f"{i}. {x}" for i, x in enumerate(cleaned, 1)) or "(none provided)"
+
+    research_block = (
+        "--- RESEARCH BRIEF ---\n"
+        f"Topic: {topic_str}\n"
+        "Trending angles (use these as content foundations):\n"
+        f"{_numbered(angles)}\n\n"
+        "Audience pain points to address:\n"
+        f"{_numbered(pain_points)}\n\n"
+        "Suggested hooks (starting lines that perform well):\n"
+        f"{_numbered(hooks)}\n"
+    )
+    if raw_summary.strip():
+        # ~800 tokens of preserved research context (~3200 chars)
+        research_block += f"\nFull research context:\n{raw_summary.strip()[:3200]}\n"
+
     user_prompt = (
         f"Platform: {platform}\n"
         f"Platform instructions: {platform_instructions.get(platform, '')}\n"
-        f"Topic: {topic_str}\n"
-        f"Trending angles: {angles}\n"
-        f"Pain points: {pain_points}\n"
-        f"Suggested hooks: {hooks}\n"
-        f"Product: {product}\n"
-        + (f"Extra context: {extra_context}\n" if extra_context else "")
+        f"Product: {product}\n\n"
+        + research_block
+        + (f"\nExtra context: {extra_context}\n" if extra_context else "")
         + few_shot_block
         + f"\nHashtag rules: {hashtag_rule}\n"
         f"CTA rules: {cta_rule}\n\n"
@@ -235,11 +251,14 @@ async def tool_generate_content(
     angles = brief.trending_angles if isinstance(brief, ResearchBrief) else brief.get("trending_angles", [])
     pain_points = brief.pain_points if isinstance(brief, ResearchBrief) else brief.get("pain_points", [])
     hooks = brief.suggested_hooks if isinstance(brief, ResearchBrief) else brief.get("suggested_hooks", [])
+    notes = brief.platform_notes if isinstance(brief, ResearchBrief) else brief.get("platform_notes", {})
+    raw_summary = (notes or {}).get("raw_summary", "")
 
     system_prompt, user_prompt = build_content_prompt(
         topic_str=topic_str, angles=angles, pain_points=pain_points, hooks=hooks,
         platform=platform, product=product, voice=voice_doc,
         brand_identity=brand_identity, tenant_voice=tenant_voice,
+        raw_summary=raw_summary,
     )
 
     async with httpx.AsyncClient(timeout=60) as client:

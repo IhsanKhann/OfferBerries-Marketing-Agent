@@ -41,17 +41,56 @@ async def tool_research_trends(
     )
 
     trends = result.trends
-    trend_titles = [t["title"] for t in trends]
+
+    # Route parsed trends by their classified label instead of slicing one
+    # title list into three roles. Angles prefer the (cleaned) description.
+    angles: list[str] = []
+    pain_points: list[str] = []
+    labelled_hooks: list[str] = []
+    for t in trends:
+        label = t.get("label", "angle")
+        if label == "pain_point":
+            v = (t.get("title") or t.get("description") or "").strip()
+            if v:
+                pain_points.append(v)
+        elif label == "hook":
+            v = (t.get("title") or t.get("description") or "").strip()
+            if v:
+                labelled_hooks.append(v)
+        else:
+            v = (t.get("description") or t.get("title") or "").strip()
+            if v:
+                angles.append(v)
+
+    # Suggested hooks: the first real trend's description + title as a template,
+    # then any explicitly-labelled hooks. Never just the bare title.
+    first_angle = next((t for t in trends if t.get("label", "angle") == "angle"), None)
+    hook_template = ""
+    if first_angle:
+        ttl = (first_angle.get("title") or "").strip()
+        dsc = (first_angle.get("description") or "").strip()
+        if dsc and ttl and dsc != ttl:
+            hook_template = f"{ttl} — {dsc}"
+        else:
+            hook_template = ttl or dsc
+    suggested_hooks = [hook_template] + labelled_hooks
+    suggested_hooks = [h for h in dict.fromkeys(suggested_hooks) if h][:5]
+
     return ResearchBrief(
         topic=topic,
-        trending_angles=trend_titles[:5],
-        pain_points=trend_titles[5:8] if len(trend_titles) > 5 else [],
-        suggested_hooks=[trend_titles[0]] if trend_titles else [],
+        trending_angles=angles[:5],
+        pain_points=pain_points[:5],
+        suggested_hooks=suggested_hooks,
         platform_notes={
             "citations": json.dumps(result.citations),
             "model_used": result.model_used,
             "raw_trends": json.dumps(trends),
             "recency_filter": recency_filter,
+            # Full Perplexity response preserved so the content prompt can use it
+            "raw_summary": result.raw_response or "",
+            # Real competitor insights are attached later by the research node if
+            # scraping succeeds; default to empty rather than fabricating a count.
+            "competitor_insights": json.dumps([]),
         },
         generated_at=__import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),
     ).model_dump()

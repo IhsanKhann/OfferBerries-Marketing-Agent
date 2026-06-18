@@ -1,13 +1,45 @@
 """Multi-format Perplexity response parser.
 
 Handles bullet lists, numbered lists, bold headers, and plain paragraphs,
-including mixed formats in a single response.
+including mixed formats in a single response. Strips markdown emphasis and
+citation markers, and classifies lines explicitly labelled as pain points or
+hooks so the caller can route them correctly.
 """
 import re
 import logging
 from dataclasses import dataclass
 
 logger = logging.getLogger("mcp_server.research_parser")
+
+# Citation markers like [1], [2][3]
+_CITATION_RE = re.compile(r"\[\d+\](?:\[\d+\])*")
+# A bare category header, e.g. "Pain point", "Hooks", "Trends"
+_CATEGORY_RE = re.compile(r"^(pain points?|hooks?|angles?|trends?)$", re.IGNORECASE)
+# A "Label: value" / "Label - value" line, e.g. "Pain point: How do SMBs ..."
+_LABELED_RE = re.compile(r"^(pain points?|hooks?|angles?|trends?)\s*[:\-–—]\s*(.+)$", re.IGNORECASE)
+
+
+def clean_markdown(text: str) -> str:
+    """Strip markdown emphasis, citation markers, surrounding quotes and
+    collapse whitespace. Returns a clean human-readable string."""
+    if not text:
+        return ""
+    t = _CITATION_RE.sub("", text)
+    t = re.sub(r"[*_`]+", "", t)          # emphasis / code markers
+    t = re.sub(r"^#{1,6}\s*", "", t)      # leading heading hashes
+    t = re.sub(r"\s+", " ", t).strip()
+    t = t.strip('"').strip("'").strip()
+    t = t.rstrip(":").strip()
+    return t
+
+
+def _norm_label(raw_label: str) -> str:
+    l = raw_label.lower()
+    if "pain" in l:
+        return "pain_point"
+    if "hook" in l:
+        return "hook"
+    return "angle"
 
 
 @dataclass
@@ -16,6 +48,7 @@ class ParsedTrend:
     description: str
     relevance_score: float
     raw_line: str
+    label: str = "angle"   # "angle" | "pain_point" | "hook"
 
 
 @dataclass
@@ -50,7 +83,9 @@ class ResearchParser:
                 if i + 1 < len(lines) and not self._is_list_item(lines[i + 1]) and not self._is_header(lines[i + 1]):
                     desc = (desc + " " + lines[i + 1]).strip()
                     i += 1
-                trends.append(ParsedTrend(title=title, description=desc, relevance_score=0.0, raw_line=line))
+                trend = self._make_trend(title, desc, line)
+                if trend:
+                    trends.append(trend)
                 i += 1
                 continue
 
@@ -63,7 +98,9 @@ class ResearchParser:
                     desc = lines[i + 1]
                     i += 1
                 title, desc = self._split_title_desc(content, desc)
-                trends.append(ParsedTrend(title=title, description=desc, relevance_score=0.0, raw_line=line))
+                trend = self._make_trend(title, desc, line)
+                if trend:
+                    trends.append(trend)
                 i += 1
                 continue
 
@@ -76,14 +113,17 @@ class ResearchParser:
                     desc = lines[i + 1]
                     i += 1
                 title, desc = self._split_title_desc(content, desc)
-                trends.append(ParsedTrend(title=title, description=desc, relevance_score=0.0, raw_line=line))
+                trend = self._make_trend(title, desc, line)
+                if trend:
+                    trends.append(trend)
                 i += 1
                 continue
 
             # Plain paragraph: use if long enough and not a section header
             if len(line) > 40 and not re.match(r"^#{1,4}\s", line):
-                title = line[:100]
-                trends.append(ParsedTrend(title=title, description=line, relevance_score=0.0, raw_line=line))
+                trend = self._make_trend(line[:100], line, line)
+                if trend:
+                    trends.append(trend)
 
             i += 1
 
@@ -102,6 +142,7 @@ class ResearchParser:
                     "description": t.description,
                     "relevance_score": t.relevance_score,
                     "raw_line": t.raw_line,
+                    "label": t.label,
                 }
                 for t in trends
             ],
@@ -109,6 +150,45 @@ class ResearchParser:
         )
 
     # ── helpers ──────────────────────────────────────────────────────────────
+
+    def _make_trend(self, title: str, desc: str, raw: str):
+        """Clean a (title, description) pair, classify pain-point/hook labels,
+        and return a ParsedTrend — or None if there is no usable content.
+
+        A line like "**Pain point:** How do SMBs handle EOBI?" yields the value
+        ("How do SMBs handle EOBI?") with label="pain_point", never "**Pain point".
+        A bare header ("Pain point") with no value is skipped.
+        """
+        title_c = clean_markdown(title)
+        desc_c = clean_markdown(desc)
+        label = "angle"
+
+        # "Label: value" embedded in the title -> take the value
+        m = _LABELED_RE.match(title_c)
+        if m:
+            label = _norm_label(m.group(1))
+            value = clean_markdown(m.group(2))
+            if not value:
+                value = desc_c
+            title_c = value
+            if not desc_c:
+                desc_c = value
+        # Bare "Pain point" / "Hook" header -> value must come from description
+        elif _CATEGORY_RE.match(title_c):
+            label = _norm_label(title_c)
+            if not desc_c:
+                return None  # header with no value -> skip
+            title_c = desc_c
+
+        if not title_c:
+            return None
+        return ParsedTrend(
+            title=title_c,
+            description=desc_c or title_c,
+            relevance_score=0.0,
+            raw_line=raw,
+            label=label,
+        )
 
     def _is_list_item(self, line: str) -> bool:
         return bool(re.match(r"^[-•*\d]", line.strip()))
