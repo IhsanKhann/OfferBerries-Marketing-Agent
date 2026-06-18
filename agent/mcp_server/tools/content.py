@@ -104,7 +104,7 @@ async def tool_generate_content(
     brief: ResearchBrief,
     platform: str,
     product: str = "full_erp",
-    model: str = "google/gemini-2.5-flash",
+    model: str = "anthropic/claude-sonnet-4-6",
     tenant_id: str = "",
     run_id: str = "",
 ) -> dict:

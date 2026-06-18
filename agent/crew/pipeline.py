@@ -63,6 +63,19 @@ def is_cancelled(run_id: str) -> bool:
     return run_id in _cancelled
 
 
+# ── Config helpers ─────────────────────────────────────────────────────────
+
+async def _get_config(db, tenant_id: str, key: str, default: str) -> str:
+    """Read a tenant config value (configs collection) with a fallback default."""
+    try:
+        doc = await db["configs"].find_one({"tenant_id": tenant_id, "key": key})
+        if doc and doc.get("value"):
+            return doc["value"]
+    except Exception:
+        pass
+    return default
+
+
 # ── Main pipeline coroutine ────────────────────────────────────────────────
 
 async def execute_pipeline(run: AgentRun, db, redis_client):
@@ -87,6 +100,12 @@ async def execute_pipeline(run: AgentRun, db, redis_client):
         "run_id": run_id,
         "dry_run": False,
     }
+
+    # Resolve tenant-configured models (Settings page writes these to configs)
+    state["content_model"] = await _get_config(
+        db, run.tenant_id, "content_model", "anthropic/claude-sonnet-4-6"
+    )
+    state["research_model"] = await _get_config(db, run.tenant_id, "research_model", "sonar")
 
     # Pre-populate with user-provided content when content stage is skipped
     if run.provided_content and not run.stages_enabled.content_generation:
@@ -211,6 +230,8 @@ async def rerun_stage(run: AgentRun, stage_name: str, db, redis_client):
         "errors": [],
         "run_id": run.id,
         "dry_run": False,
+        "content_model": await _get_config(db, run.tenant_id, "content_model", "anthropic/claude-sonnet-4-6"),
+        "research_model": await _get_config(db, run.tenant_id, "research_model", "sonar"),
     }
 
     await _set_stage(db, redis_client, run.id, stage_name, StageState(

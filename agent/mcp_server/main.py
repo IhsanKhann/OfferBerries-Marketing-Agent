@@ -235,7 +235,7 @@ async def _dispatch_tool(name: str, args: dict, tenant: TenantContext, run_id: s
             brief=brief,
             platform=args.get("platform", "linkedin"),
             product=args.get("product", "full_erp"),
-            model=args.get("model", "google/gemini-2.5-flash"),
+            model=args.get("model") or "anthropic/claude-sonnet-4-6",
             tenant_id=tenant.tenant_id,
             run_id=run_id,
         )

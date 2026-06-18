@@ -13,7 +13,7 @@ MCP_URL = os.getenv("MCP_SERVER_URL", "http://mcp-server:8000")
 OWNER_KEY = os.getenv("OWNER_API_KEY", "")
 
 
-class AgentState(TypedDict):
+class AgentState(TypedDict, total=False):
     topic: str
     platform_filter: list[str]
     brief: Optional[dict]
@@ -24,6 +24,8 @@ class AgentState(TypedDict):
     errors: list[str]
     run_id: str
     dry_run: bool
+    content_model: str
+    research_model: str
 
 
 async def _call_tool(tool_name: str, arguments: dict, api_key: str = None, run_id: str = "") -> dict:
@@ -89,11 +91,12 @@ async def content_node(state: AgentState) -> AgentState:
 
     brief = state.get("brief", {})
     platform_content = {}
+    content_model = state.get("content_model") or "anthropic/claude-sonnet-4-6"
 
     for platform in state["platform_filter"]:
         run_id = state["run_id"]
         try:
-            content = await _call_tool("generate_content", {"brief": brief, "platform": platform}, run_id=run_id)
+            content = await _call_tool("generate_content", {"brief": brief, "platform": platform, "model": content_model}, run_id=run_id)
             if content:
                 platform_content[platform] = content
 
@@ -106,7 +109,7 @@ async def content_node(state: AgentState) -> AgentState:
                     try:
                         slide_content = await _call_tool(
                             "generate_content",
-                            {"brief": slide_brief, "platform": "linkedin"},
+                            {"brief": slide_brief, "platform": "linkedin", "model": content_model},
                             run_id=run_id,
                         )
                         if slide_content:
