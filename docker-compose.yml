@@ -126,11 +126,14 @@ services:
       retries: 5
       start_period: 30s
 
-  # ── MCP Server ─────────────────────────────────────────────────────────────
+  # ── MCP Server (SSE + REST on port 8000) ──────────────────────────────────
+  # /sse and /messages/ → MCP SSE transport (for Claude Code, Claude.ai, etc.)
+  # /health, /queue/*, /config/*, /admin/*, /projects/* → REST API
   mcp-server:
     build: ./agent/mcp_server
     restart: unless-stopped
     env_file: .env
+    command: uvicorn mcp_app:app --host 0.0.0.0 --port 8000
     depends_on:
       redis:
         condition: service_healthy

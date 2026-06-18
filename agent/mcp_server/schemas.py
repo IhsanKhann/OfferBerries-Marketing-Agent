@@ -1,4 +1,5 @@
 """Pydantic models for the MCP server."""
+from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel
 
@@ -180,3 +181,44 @@ class CreateApiKeyRequest(BaseModel):
 class CheckoutRequest(BaseModel):
     plan: str
     tenant_email: str
+
+
+class ProjectDoc(BaseModel):
+    id: str = ""
+    tenant_id: str = ""
+    name: str
+    description: Optional[str] = None
+    brand_voice: Optional[str] = None
+    default_platforms: list[str] = []
+    default_model: str = "sonar-pro"
+    default_steps: list[str] = ["research", "content_generation", "visual_generation"]
+    color: str = "#6366F1"
+    icon: str = "📁"
+    starred: bool = False
+    is_active: bool = True
+    archived_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
+class ProjectCreateRequest(BaseModel):
+    name: str
+    description: Optional[str] = None
+    brand_voice: Optional[str] = None
+    default_platforms: list[str] = ["linkedin", "instagram"]
+    default_model: str = "sonar-pro"
+    default_steps: list[str] = ["research", "content_generation", "visual_generation"]
+    color: str = "#6366F1"
+    icon: str = "📁"
+
+
+class ProjectUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    brand_voice: Optional[str] = None
+    default_platforms: Optional[list[str]] = None
+    default_model: Optional[str] = None
+    default_steps: Optional[list[str]] = None
+    color: Optional[str] = None
+    icon: Optional[str] = None
+    starred: Optional[bool] = None
