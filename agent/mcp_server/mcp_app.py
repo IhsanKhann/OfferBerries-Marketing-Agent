@@ -24,6 +24,7 @@ from main import app  # existing FastAPI app (all REST routes intact)
 from mcp.server import Server
 from mcp.server.sse import SseServerTransport
 from mcp.types import TextContent, Tool
+from starlette.requests import Request
 
 logger = logging.getLogger("mcp_server")
 
@@ -328,10 +329,20 @@ async def _dispatch(name: str, args: dict) -> dict:
 
 
 # ── SSE route handler ──────────────────────────────────────────────────────────
+#
+# FIX (was a 500/AttributeError on every /sse request):
+#   `request.send` does not exist on starlette.requests.Request — only
+#   `.scope` and `.receive` are public. The raw ASGI `send` callable is
+#   stored internally as `request._send`. SseServerTransport.connect_sse()
+#   needs the raw ASGI triple (scope, receive, send), so we pull the
+#   underscore-prefixed attribute here. This is the standard workaround used
+#   when wiring `mcp.server.sse.SseServerTransport` into a Starlette/FastAPI
+#   route defined with the high-level `Request` signature instead of the
+#   raw ASGI (scope, receive, send) signature.
 
-async def _handle_sse(request):
+async def _handle_sse(request: Request):
     async with _sse.connect_sse(
-        request.scope, request.receive, request.send
+        request.scope, request.receive, request._send
     ) as streams:
         await _server.run(
             streams[0], streams[1], _server.create_initialization_options()
