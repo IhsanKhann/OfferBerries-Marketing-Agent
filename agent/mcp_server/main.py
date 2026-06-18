@@ -260,7 +260,7 @@ async def _dispatch_tool(name: str, args: dict, tenant: TenantContext, run_id: s
         )
     if name == "queue_post":
         from tools.queue import tool_queue_post
-        return await tool_queue_post(tenant_id=tenant.tenant_id, **args)
+        return await tool_queue_post(tenant_id=tenant.tenant_id, run_id=run_id, **args)
     if name == "get_analytics":
         from tools.analytics import tool_get_analytics
         return await tool_get_analytics(**args)

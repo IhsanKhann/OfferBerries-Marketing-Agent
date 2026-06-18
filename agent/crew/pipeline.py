@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -74,6 +75,76 @@ async def _get_config(db, tenant_id: str, key: str, default: str) -> str:
     except Exception:
         pass
     return default
+
+
+# ── Post persistence ───────────────────────────────────────────────────────
+
+async def _persist_posts(db, run, state: dict):
+    """Persist generated posts to the `posts` collection as soon as content is
+    produced — independent of the (optional) scheduling stage. Idempotent per
+    (run_id, platform). Hashtags/cta/hook are stored as separate fields."""
+    platform_content = state.get("platform_content") or {}
+    visual_assets = state.get("visual_assets") or {}
+    now = datetime.now(timezone.utc)
+    for platform, content in platform_content.items():
+        if platform == "linkedin_carousel" or not isinstance(content, dict):
+            continue
+        copy_text = content.get("copy", "") or ""
+        hook = copy_text.split("\n", 1)[0].strip() if copy_text else ""
+        visual_url = (visual_assets.get(platform) or {}).get("url") if isinstance(visual_assets.get(platform), dict) else None
+        try:
+            await db["posts"].update_one(
+                {"run_id": run.id, "platform": platform},
+                {
+                    "$set": {
+                        "run_id": run.id,
+                        "tenant_id": run.tenant_id,
+                        "platform": platform,
+                        "copy": copy_text,
+                        "caption": copy_text,          # legacy field kept populated
+                        "hashtags": content.get("hashtags", []) or [],
+                        "cta": content.get("cta", "") or "",
+                        "hook": hook,
+                        "visual_url": visual_url,
+                        "preview_url": visual_url or "",
+                        "status": "pending_review",
+                        "updated_at": now,
+                    },
+                    "$setOnInsert": {
+                        "postiz_id": str(uuid.uuid4()),
+                        "scheduled_at": now.isoformat(),
+                        "created_at": now,
+                    },
+                },
+                upsert=True,
+            )
+        except Exception as exc:
+            logger.error("Persisting post for run %s/%s failed: %s", run.id, platform, exc)
+
+
+async def _update_post_visuals(db, run_id: str, visual_assets: dict):
+    """Attach generated visual URLs to the run's already-persisted posts."""
+    now = datetime.now(timezone.utc)
+    for platform, asset in (visual_assets or {}).items():
+        if not isinstance(asset, dict):
+            continue
+        url = asset.get("url")
+        if not url:
+            continue
+        try:
+            await db["posts"].update_one(
+                {"run_id": run_id, "platform": platform},
+                {"$set": {"visual_url": url, "preview_url": url, "updated_at": now}},
+            )
+        except Exception as exc:
+            logger.error("Updating post visual for run %s/%s failed: %s", run_id, platform, exc)
+
+
+async def _persist_stage_artifacts(db, run, stage_name: str, state: dict):
+    if stage_name == "content_generation":
+        await _persist_posts(db, run, state)
+    elif stage_name == "visual_generation":
+        await _update_post_visuals(db, run.id, state.get("visual_assets") or {})
 
 
 # ── Main pipeline coroutine ────────────────────────────────────────────────
@@ -172,6 +243,9 @@ async def execute_pipeline(run: AgentRun, db, redis_client):
 
         output = _extract_output(stage_name, state)
 
+        # Persist generated posts/visuals immediately — do not wait for scheduling
+        await _persist_stage_artifacts(db, run, stage_name, state)
+
         post_status = StageStatus.PAUSED if run.execution_mode == "controlled" else StageStatus.APPROVED
         await _set_stage(db, redis_client, run_id, stage_name, StageState(
             status=post_status,
@@ -196,6 +270,8 @@ async def execute_pipeline(run: AgentRun, db, redis_client):
             edited = _edited_outputs.pop(edit_key, None)
             if edited is not None:
                 state = _apply_edit(stage_name, state, edited)
+                # Re-persist so human edits are reflected in the queued posts
+                await _persist_stage_artifacts(db, run, stage_name, state)
 
             await _set_stage_status(db, redis_client, run_id, stage_name, StageStatus.APPROVED)
             await _set_overall_status(db, redis_client, run_id, "running")
