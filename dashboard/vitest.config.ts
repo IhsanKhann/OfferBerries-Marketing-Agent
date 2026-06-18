@@ -22,6 +22,7 @@ export default defineConfig({
         'components/AgentErrorBanner.tsx',
         'lib/toast.ts',
         'app/**/sidebar.tsx',
+        'app/**/analytics/ContentCalendar.tsx',
       ],
     },
   },

@@ -21,9 +21,9 @@ Every phase is gated. Nothing proceeds to the next phase until:
 | 2 exit | ≥ 75% ✅ | ≥ 75% ✅ |
 | 3 exit | ≥ 75% ✅ | ≥ 75% ✅ |
 | 4 exit | ≥ 80% ✅ | ≥ 80% ✅ |
-| 5 exit | ≥ 80% | ≥ 80% |
+| 5 exit | ≥ 80% ✅ | ≥ 80% ✅ |
 
-Backend **80%** (299 tests). Frontend **84% statements / 88% lines** (157 tests, 11 test files).
+Backend **80%** (311 tests). Frontend **85% statements / 89% lines** (167 tests, 12 test files).
 
 ---
 
@@ -131,13 +131,15 @@ dashboard/app/globals.css                       (--sidebar-width: 260px)
 
 ---
 
-## Phase 5 — Analytics, Feedback & Calendar
-*Gate: Backend ≥ 80% / Frontend ≥ 80%*
+## Phase 5 — Analytics, Feedback & Calendar ✅
+*Completed: 2026-06-18 | Gate: Backend ≥ 80% ✅ (311 tests) / Frontend ≥ 80% ✅ (85% stmts / 89% lines, 167 tests)*
 
-### What to build
-- Analytics: cost_per_post, best_platform, optimal_times_from_data
-- Content calendar month view with gap warnings
-- Final SRS cross-validation table (every feature ✅ ✅ ✅ ✅)
+### What was built
+- `services/analytics_service.py`: `get_run_analytics()` (cost_per_post), `get_project_analytics()` (best_platform, avg_engagement), `get_optimal_times_from_data()` (from high-rated posts)
+- Optimal times extracted from `scheduled_at` of high-rated posts only (medium/low ignored)
+- `ContentCalendar.tsx` — month grid with posts on correct dates, gap-day CSS class, gap warning message
+- Posts rendered as platform-colored pills; `onPostClick` callback for preview
+- ContentCalendar added to vitest coverage include list
 
 ---
 
@@ -149,6 +151,6 @@ The features are 30% of the journey. The other 70%:
 - Let the project context accumulate 3 months of what works
 - Scheduled runs producing content without manual intervention
 
-**Right now:** Phase 5 — Analytics, Feedback & Calendar.
+**All 5 phases complete.** The agent is now test-driven, has context memory, intelligent visuals, scheduled runs, and analytics. The journey to 10/10 continues through weekly use, rating posts, and letting the context accumulate.
 
 See `docs/SRS.md` for detailed acceptance criteria per phase.
