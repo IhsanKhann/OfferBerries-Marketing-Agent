@@ -7,7 +7,8 @@ import json
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from main import tool_generate_content, _parse_content_response, ResearchBrief
+from tools.content import tool_generate_content, _parse_content_response
+from schemas import ResearchBrief
 
 
 def _mock_openrouter(content: str):

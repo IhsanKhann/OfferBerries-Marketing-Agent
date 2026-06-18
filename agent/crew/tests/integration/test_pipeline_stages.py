@@ -18,8 +18,6 @@ from pipeline import (
     signal_resume,
     cancel_run,
     is_cancelled,
-    _resume_events,
-    _cancelled,
 )
 
 
@@ -37,14 +35,17 @@ class FakeCollection:
         _id = doc.get("_id", "unknown")
         self._docs[_id] = dict(doc)
 
-    async def find_one(self, query):
+    async def find_one(self, query, projection=None):
         _id = query.get("_id") if isinstance(query, dict) else query
         return self._docs.get(_id)
 
-    async def update_one(self, query, update):
-        _id = query.get("_id")
+    async def update_one(self, query, update, upsert=False):
+        _id = query.get("_id") or query.get("run_id")
         if _id not in self._docs:
-            return
+            if upsert:
+                self._docs[_id] = {"_id": _id}
+            else:
+                return
         self.update_calls.append((_id, update))
         doc = self._docs[_id]
         set_fields = update.get("$set", {})
@@ -71,6 +72,20 @@ class FakeDB:
 class FakeRedis:
     def __init__(self):
         self.published: list = []
+        self._store: dict = {}
+
+    async def set(self, key: str, value, ex=None):
+        self._store[key] = value
+
+    async def get(self, key: str):
+        return self._store.get(key)
+
+    async def exists(self, *keys):
+        return sum(1 for k in keys if k in self._store)
+
+    async def delete(self, *keys):
+        for k in keys:
+            self._store.pop(k, None)
 
     async def publish(self, channel: str, message: str):
         self.published.append((channel, json.loads(message)))
@@ -311,28 +326,29 @@ class TestControlledPipeline:
 
         async def run_and_approve():
             nonlocal pipeline_task
-            with patch.dict("sys.modules", {"graph": MagicMock(
-                AgentState=dict,
-                research_node=stub_research,
-                content_node=stub_content,
-                visual_node=stub_visual,
-                queue_node=stub_queue,
-            )}):
-                pipeline_task = asyncio.create_task(execute_pipeline(controlled_run, db, redis))
-                # Give pipeline time to reach research pause
-                await asyncio.sleep(0.05)
+            with patch("pipeline._extract_topic", new=AsyncMock(return_value="payroll")):
+                with patch.dict("sys.modules", {"graph": MagicMock(
+                    AgentState=dict,
+                    research_node=stub_research,
+                    content_node=stub_content,
+                    visual_node=stub_visual,
+                    queue_node=stub_queue,
+                )}):
+                    pipeline_task = asyncio.create_task(execute_pipeline(controlled_run, db, redis))
+                    # Give pipeline time to reach research pause
+                    await asyncio.sleep(0.3)
 
-                # At this point research should be paused
-                doc = await db["agent_runs"].find_one({"_id": controlled_run.id})
-                research_status = doc["stages"]["research"]["status"]
+                    # At this point research should be paused
+                    doc = await db["agent_runs"].find_one({"_id": controlled_run.id})
+                    research_status = doc["stages"]["research"]["status"]
 
-                # Approve and let it continue through all stages
-                for stage in ["research", "content_generation", "visual_generation"]:
-                    signal_resume(controlled_run.id, stage)
-                    await asyncio.sleep(0.05)
+                    # Approve and let it continue through all stages
+                    for stage in ["research", "content_generation", "visual_generation"]:
+                        await signal_resume(redis, controlled_run.id, stage)
+                        await asyncio.sleep(0.3)
 
-                await pipeline_task
-                return research_status
+                    await pipeline_task
+                    return research_status
 
         research_status = await run_and_approve()
         assert research_status == StageStatus.PAUSED.value
@@ -344,7 +360,7 @@ class TestControlledPipeline:
         async def approve_all():
             for stage in ["research", "content_generation", "visual_generation"]:
                 await asyncio.sleep(0.05)
-                signal_resume(controlled_run.id, stage)
+                await signal_resume(redis, controlled_run.id, stage)
 
         with patch.dict("sys.modules", {"graph": MagicMock(
             AgentState=dict,
@@ -371,7 +387,7 @@ class TestControlledPipeline:
         async def approve_all():
             for stage in ["research", "content_generation", "visual_generation"]:
                 await asyncio.sleep(0.05)
-                signal_resume(controlled_run.id, stage)
+                await signal_resume(redis, controlled_run.id, stage)
 
         with patch.dict("sys.modules", {"graph": MagicMock(
             AgentState=dict,
@@ -415,11 +431,11 @@ class TestControlledPipeline:
                 "platform_notes": {},
                 "generated_at": "2026-06-14T00:00:00Z",
             }
-            signal_resume(run.id, "research", edited_output=edited_brief)
+            await signal_resume(redis, run.id, "research", edited_output=edited_brief)
             # Content and visual stages: plain approve
             for stage in ["content_generation", "visual_generation"]:
                 await asyncio.sleep(0.05)
-                signal_resume(run.id, stage)
+                await signal_resume(redis, run.id, stage)
 
         with patch.dict("sys.modules", {"graph": MagicMock(
             AgentState=dict,
@@ -448,7 +464,7 @@ class TestControlledPipeline:
         async def cancel_after_research():
             await asyncio.sleep(0.05)
             # Cancel instead of approving
-            cancel_run(controlled_run.id)
+            await cancel_run(redis, controlled_run.id)
 
         with patch.dict("sys.modules", {"graph": MagicMock(
             AgentState=dict,

@@ -6,7 +6,6 @@ import re
 from typing import Optional
 
 import httpx
-from fastapi import HTTPException
 
 from constants import PLATFORM_CHAR_LIMITS, compute_openrouter_cost
 from schemas import PlatformContent, ResearchBrief, VoiceProfileDoc
@@ -265,7 +264,7 @@ async def tool_generate_content(
     openrouter_key = os.getenv("OPENROUTER_API_KEY", "")
     if not openrouter_key:
         logger.warning("OPENROUTER_API_KEY not set — content generation unavailable")
-        raise HTTPException(status_code=503, detail="Content generation API key not configured")
+        return {"error": "Content generation API key not configured"}
 
     voice_doc: Optional[VoiceProfileDoc] = None
     if tenant_id:
@@ -316,22 +315,26 @@ async def tool_generate_content(
         raw_summary=raw_summary, competitor_insights=competitor_insights,
     )
 
-    async with httpx.AsyncClient(timeout=60) as client:
-        resp = await client.post(
-            "https://openrouter.ai/api/v1/chat/completions",
-            headers={"Authorization": f"Bearer {openrouter_key}"},
-            json={
-                "model": actual_model,
-                "max_tokens": 1200,
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-            },
-        )
-        resp.raise_for_status()
-        resp_body = resp.json()
-        raw = resp_body["choices"][0]["message"]["content"].strip()
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            resp = await client.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={"Authorization": f"Bearer {openrouter_key}"},
+                json={
+                    "model": actual_model,
+                    "max_tokens": 1200,
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                },
+            )
+            resp.raise_for_status()
+            resp_body = resp.json()
+            raw = resp_body["choices"][0]["message"]["content"].strip()
+    except Exception as exc:
+        logger.error("OpenRouter generate_content error: %s", exc)
+        return {"error": f"Content generation failed: {exc}"}
 
     usage = resp_body.get("usage", {})
     prompt_tokens = usage.get("prompt_tokens", 0)

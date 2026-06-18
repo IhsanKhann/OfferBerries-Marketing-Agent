@@ -3,7 +3,7 @@ import os, sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 from httpx import AsyncClient, ASGITransport
 
@@ -102,7 +102,7 @@ class TestApproveStage:
         assert resp.status_code == 200
         body = resp.json()
         assert body["approved"] is True
-        mock_resume.assert_called_once_with("test-run", "research", edited_output=None)
+        mock_resume.assert_called_once_with(ANY, "test-run", "research", edited_output=None)
 
     @pytest.mark.asyncio
     async def test_approve_with_edited_output(self, app_with_mocks):
@@ -169,7 +169,7 @@ class TestEditStage:
         assert resp.status_code == 200
         body = resp.json()
         assert body["edited"] is True
-        mock_resume.assert_called_once_with("test-run", "research", edited_output=edited)
+        mock_resume.assert_called_once_with(ANY, "test-run", "research", edited_output=edited)
 
 
 # ── POST /runs/{id}/stage/{stage}/reject ──────────────────────────────────
@@ -177,19 +177,22 @@ class TestEditStage:
 class TestRejectStage:
     @pytest.mark.asyncio
     async def test_reject_starts_rerun(self, app_with_mocks):
-        with patch("run_weekly.rerun_stage", new_callable=AsyncMock) as mock_rerun:
-            with patch("asyncio.create_task") as mock_task:
-                async with AsyncClient(transport=ASGITransport(app=app_with_mocks), base_url="http://test") as client:
-                    resp = await client.post(
-                        "/runs/test-run/stage/research/reject",
-                        headers=AUTH_HEADERS,
-                    )
+        import run_weekly
+        mock_pool = AsyncMock()
+        mock_pool.enqueue_job = AsyncMock()
+        run_weekly.arq_pool = mock_pool
+
+        async with AsyncClient(transport=ASGITransport(app=app_with_mocks), base_url="http://test") as client:
+            resp = await client.post(
+                "/runs/test-run/stage/research/reject",
+                headers=AUTH_HEADERS,
+            )
 
         assert resp.status_code == 200
         body = resp.json()
         assert body["rejected"] is True
         assert body["stage"] == "research"
-        mock_task.assert_called_once()
+        mock_pool.enqueue_job.assert_called_once_with("rerun_stage_job", "test-run", "research")
 
     @pytest.mark.asyncio
     async def test_reject_unknown_stage_returns_400(self, app_with_mocks):

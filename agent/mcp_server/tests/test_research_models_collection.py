@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from httpx import AsyncClient, ASGITransport
 
 import main
-from main import RESEARCH_MODELS_SEED, TIER_ORDER
+from constants import RESEARCH_MODELS_SEED, TIER_ORDER
 from auth import TenantContext
 
 OWNER_KEY = os.getenv("OWNER_API_KEY", "ofb_owner_test0000000000000000000000000000000")

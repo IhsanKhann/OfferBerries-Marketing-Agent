@@ -3,7 +3,8 @@ import os, sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import pytest
-from main import build_flux_prompt, VisualBrief
+from tools.visual import build_flux_prompt
+from schemas import VisualBrief
 
 
 class TestBuildFluxPrompt:

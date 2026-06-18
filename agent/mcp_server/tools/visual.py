@@ -7,7 +7,6 @@ import uuid
 from typing import Optional
 
 import httpx
-from fastapi import HTTPException
 
 from constants import PLATFORM_DIMS, compute_openrouter_cost
 from schemas import PlatformContent, VisualAsset, VisualBrief
@@ -81,15 +80,19 @@ Return ONLY valid JSON — no markdown, no extra text:
   "layout_hint": "one of: stat-card | quote-card | announcement | illustration | data-visual"
 }}"""
 
-    async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.post(
-            "https://openrouter.ai/api/v1/chat/completions",
-            headers={"Authorization": f"Bearer {openrouter_key}"},
-            json={"model": model, "max_tokens": 200, "messages": [{"role": "user", "content": prompt}]},
-        )
-        resp.raise_for_status()
-        resp_body = resp.json()
-        raw = resp_body["choices"][0]["message"]["content"].strip()
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={"Authorization": f"Bearer {openrouter_key}"},
+                json={"model": model, "max_tokens": 200, "messages": [{"role": "user", "content": prompt}]},
+            )
+            resp.raise_for_status()
+            resp_body = resp.json()
+            raw = resp_body["choices"][0]["message"]["content"].strip()
+    except Exception as exc:
+        logger.warning("generate_visual_brief OpenRouter error: %s — using fallback brief", exc)
+        return VisualBrief(headline=content.get("copy", "")[:60]).model_dump()
 
     usage = resp_body.get("usage", {})
     cost_usd = compute_openrouter_cost(model, usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0))
@@ -200,4 +203,4 @@ async def tool_generate_visual(
             source="fal", template_id=template_id,
         ).model_dump()
 
-    raise HTTPException(status_code=400, detail=f"Unknown source: {source}")
+    return {"error": f"Unknown visual source: {source}"}

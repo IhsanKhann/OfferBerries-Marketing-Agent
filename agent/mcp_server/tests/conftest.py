@@ -6,6 +6,9 @@ module-level _validate_env() check passes during test collection.
 All values here are test-only stubs — no real infrastructure is contacted.
 """
 import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 # Set before any test module imports main.py
 _TEST_ENV = {

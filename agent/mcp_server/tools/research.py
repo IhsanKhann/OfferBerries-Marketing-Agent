@@ -4,7 +4,6 @@ import logging
 import os
 
 import httpx
-from fastapi import HTTPException
 
 from constants import PERPLEXITY_COSTS
 from schemas import CompetitorPost, ResearchBrief
@@ -32,7 +31,7 @@ async def tool_research_trends(
             tenant_id=tenant_id, tool_name="research_trends", status="error",
             run_id=run_id, provider="perplexity", model=model,
         )
-        raise HTTPException(status_code=503, detail=exc.to_dict())
+        return {"error": exc.to_dict()}
 
     cost_usd = PERPLEXITY_COSTS.get(model, PERPLEXITY_COSTS["sonar"])
     await _m.log_tool_call(
@@ -105,7 +104,8 @@ async def tool_scrape_competitor(platform: str, handle: str, limit: int = 20) ->
     }
     actor = actor_map.get(platform)
     if not actor:
-        raise HTTPException(status_code=400, detail=f"Unsupported platform: {platform}")
+        logger.warning("scrape_competitor: unsupported platform %s", platform)
+        return []
     if not apify_token:
         return []
 
@@ -115,14 +115,18 @@ async def tool_scrape_competitor(platform: str, handle: str, limit: int = 20) ->
         "instagram": f"https://www.instagram.com/{handle}",
     }
 
-    async with httpx.AsyncClient(timeout=60) as client:
-        resp = await client.post(
-            f"https://api.apify.com/v2/acts/{actor}/run-sync-get-dataset-items",
-            headers={"Authorization": f"Bearer {apify_token}"},
-            json={"startUrls": [{"url": url_map[platform]}], "maxItems": limit},
-        )
-        resp.raise_for_status()
-        items = resp.json()
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            resp = await client.post(
+                f"https://api.apify.com/v2/acts/{actor}/run-sync-get-dataset-items",
+                headers={"Authorization": f"Bearer {apify_token}"},
+                json={"startUrls": [{"url": url_map[platform]}], "maxItems": limit},
+            )
+            resp.raise_for_status()
+            items = resp.json()
+    except Exception as exc:
+        logger.warning("scrape_competitor Apify error for %s/%s: %s", platform, handle, exc)
+        return []
 
     return [
         CompetitorPost(

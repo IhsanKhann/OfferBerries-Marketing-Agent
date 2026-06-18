@@ -331,7 +331,7 @@ async def _dispatch(name: str, args: dict) -> dict:
 
 async def _handle_sse(request):
     async with _sse.connect_sse(
-        request.scope, request.receive, request._send
+        request.scope, request.receive, request.send
     ) as streams:
         await _server.run(
             streams[0], streams[1], _server.create_initialization_options()
