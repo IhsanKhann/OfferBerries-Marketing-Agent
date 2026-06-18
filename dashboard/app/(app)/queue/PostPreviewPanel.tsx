@@ -14,21 +14,25 @@ const PLATFORM_COLOR: Record<string, string> = {
   youtube: '#FF0000', email: '#6366F1',
 };
 
+type PerformanceRating = 'high' | 'medium' | 'low';
+
 interface Props {
   post: PreviewPost | null;
   isOpen: boolean;
   onClose: () => void;
   onApprove?: (id: string) => Promise<void>;
   onReject?: (id: string) => Promise<void>;
+  onRate?: (id: string, rating: PerformanceRating) => Promise<void>;
 }
 
-export default function PostPreviewPanel({ post, isOpen, onClose, onApprove, onReject }: Props) {
+export default function PostPreviewPanel({ post, isOpen, onClose, onApprove, onReject, onRate }: Props) {
   const [editMode, setEditMode] = useState(false);
   const [editedCaption, setEditedCaption] = useState('');
   const [editedHashtags, setEditedHashtags] = useState<string[]>([]);
   const [newHashtag, setNewHashtag] = useState('');
   const [approving, setApproving] = useState(false);
   const [rejecting, setRejecting] = useState(false);
+  const [selectedRating, setSelectedRating] = useState<PerformanceRating | null>(null);
 
   useEffect(() => {
     if (post) {
@@ -37,6 +41,7 @@ export default function PostPreviewPanel({ post, isOpen, onClose, onApprove, onR
     }
     setEditMode(false);
     setNewHashtag('');
+    setSelectedRating(null);
   }, [post]);
 
   function addHashtag() {
@@ -83,6 +88,12 @@ export default function PostPreviewPanel({ post, isOpen, onClose, onApprove, onR
     a.href = post.preview_url;
     a.download = `${post.platform}-post.png`;
     a.click();
+  }
+
+  async function handleRate(rating: PerformanceRating) {
+    if (!onRate) return;
+    setSelectedRating(rating);
+    await onRate(post!.postiz_id, rating).catch(() => {});
   }
 
   return (
@@ -176,6 +187,30 @@ export default function PostPreviewPanel({ post, isOpen, onClose, onApprove, onR
             </span>
           </div>
         </div>
+
+        {/* Rating buttons — shown for approved/published posts */}
+        {onRate && post.status === 'approved' && (
+          <div className="post-preview-panel__rating">
+            <div className="preview-field-label">How did it perform?</div>
+            <div className="preview-rating-buttons">
+              {([
+                { rating: 'high' as const, emoji: '🔥', label: 'High performance' },
+                { rating: 'medium' as const, emoji: '👍', label: 'Medium performance' },
+                { rating: 'low' as const, emoji: '👎', label: 'Low performance' },
+              ] as const).map(({ rating, emoji, label }) => (
+                <button
+                  key={rating}
+                  type="button"
+                  className={`btn btn-secondary btn-sm preview-rating-btn${selectedRating === rating ? ' active' : ''}`}
+                  title={label}
+                  onClick={() => handleRate(rating)}
+                >
+                  {emoji}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Actions */}
         <div className="post-preview-panel__actions">

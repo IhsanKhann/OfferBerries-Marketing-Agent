@@ -13,6 +13,14 @@ from schemas import PlatformContent, VisualAsset, VisualBrief
 
 logger = logging.getLogger("mcp_server")
 
+_FAL_SIZE_MAP = {
+    "linkedin":  "landscape_4_3",
+    "twitter":   "landscape_16_9",
+    "instagram": "square_hd",
+    "youtube":   "landscape_16_9",
+    "email":     "landscape_4_3",
+}
+
 
 def _renderer_public_url(filename: str, renderer_url: str) -> str:
     domain = os.getenv("DOMAIN", "")
@@ -178,13 +186,12 @@ async def tool_generate_visual(
 
     if source == "fal":
         fal_key = os.getenv("FAL_API_KEY", "")
-        size_map = {"linkedin": "square_hd", "twitter": "landscape_16_9", "instagram": "square_hd", "youtube": "landscape_16_9"}
         flux_prompt = build_flux_prompt(vb, platform) if (vb and vb.headline) else f"Professional social media graphic: {copy[:200]}"
         async with httpx.AsyncClient(timeout=90) as client:
             resp = await client.post(
                 "https://fal.run/fal-ai/flux/dev",
                 headers={"Authorization": f"Key {fal_key}"},
-                json={"prompt": flux_prompt, "image_size": size_map.get(platform, "square_hd")},
+                json={"prompt": flux_prompt, "image_size": _FAL_SIZE_MAP.get(platform, "square_hd")},
             )
             resp.raise_for_status()
             data = resp.json()

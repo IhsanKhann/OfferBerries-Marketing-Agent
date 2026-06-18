@@ -199,4 +199,52 @@ describe('PostPreviewPanel', () => {
       expect.stringContaining('OfferBerries')
     );
   });
+
+  // --- Rating buttons ---
+
+  it('shows rating buttons when post.status is "approved"', () => {
+    const approved = { ...MOCK_POST, status: 'approved' };
+    render(<PostPreviewPanel post={approved} isOpen={true} onClose={vi.fn()} onRate={vi.fn()} />);
+    expect(screen.getByTitle('High performance')).toBeInTheDocument();
+    expect(screen.getByTitle('Medium performance')).toBeInTheDocument();
+    expect(screen.getByTitle('Low performance')).toBeInTheDocument();
+  });
+
+  it('does not show rating buttons when status is "queued"', () => {
+    render(<PostPreviewPanel post={MOCK_POST} isOpen={true} onClose={vi.fn()} onRate={vi.fn()} />);
+    expect(screen.queryByTitle('High performance')).not.toBeInTheDocument();
+  });
+
+  it('calls onRate with postiz_id and "high" when 🔥 clicked', async () => {
+    const onRate = vi.fn().mockResolvedValue(undefined);
+    const approved = { ...MOCK_POST, status: 'approved' };
+    render(<PostPreviewPanel post={approved} isOpen={true} onClose={vi.fn()} onRate={onRate} />);
+    await userEvent.click(screen.getByTitle('High performance'));
+    expect(onRate).toHaveBeenCalledWith('post-001', 'high');
+  });
+
+  it('calls onRate with "medium" when 👍 clicked', async () => {
+    const onRate = vi.fn().mockResolvedValue(undefined);
+    const approved = { ...MOCK_POST, status: 'approved' };
+    render(<PostPreviewPanel post={approved} isOpen={true} onClose={vi.fn()} onRate={onRate} />);
+    await userEvent.click(screen.getByTitle('Medium performance'));
+    expect(onRate).toHaveBeenCalledWith('post-001', 'medium');
+  });
+
+  it('calls onRate with "low" when 👎 clicked', async () => {
+    const onRate = vi.fn().mockResolvedValue(undefined);
+    const approved = { ...MOCK_POST, status: 'approved' };
+    render(<PostPreviewPanel post={approved} isOpen={true} onClose={vi.fn()} onRate={onRate} />);
+    await userEvent.click(screen.getByTitle('Low performance'));
+    expect(onRate).toHaveBeenCalledWith('post-001', 'low');
+  });
+
+  it('selected rating button gets "active" class', async () => {
+    const onRate = vi.fn().mockResolvedValue(undefined);
+    const approved = { ...MOCK_POST, status: 'approved' };
+    render(<PostPreviewPanel post={approved} isOpen={true} onClose={vi.fn()} onRate={onRate} />);
+    const highBtn = screen.getByTitle('High performance');
+    await userEvent.click(highBtn);
+    expect(highBtn).toHaveClass('active');
+  });
 });

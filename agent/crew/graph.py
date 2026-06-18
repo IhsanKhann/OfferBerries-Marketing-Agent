@@ -7,6 +7,8 @@ from typing import Optional, TypedDict
 import httpx
 from langgraph.graph import END, START, StateGraph
 
+from graph_config import get_visual_source
+
 logger = logging.getLogger("crew.graph")
 
 MCP_URL = os.getenv("MCP_SERVER_URL", "http://mcp-server:8000")
@@ -167,7 +169,7 @@ async def visual_node(state: AgentState) -> AgentState:
         if not isinstance(content, dict):
             continue
         template_id = template_map.get(platform, "announcement-card")
-        source = "open_design" if platform == "instagram" else "template"
+        source = get_visual_source(platform)
         run_id = state["run_id"]
 
         # D1: Generate visual brief to give the renderer richer context

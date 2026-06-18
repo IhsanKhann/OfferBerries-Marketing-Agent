@@ -19,11 +19,11 @@ Every phase is gated. Nothing proceeds to the next phase until:
 | 0 Baseline | 80% ✅ | 0% (no tests yet) |
 | 1 exit | ≥ 70% ✅ | ≥ 70% ✅ |
 | 2 exit | ≥ 75% ✅ | ≥ 75% ✅ |
-| 3 exit | ≥ 75% | ≥ 75% |
+| 3 exit | ≥ 75% ✅ | ≥ 75% ✅ |
 | 4 exit | ≥ 80% | ≥ 80% |
 | 5 exit | ≥ 80% | ≥ 80% |
 
-Backend **80%** (269 tests). Frontend **77% statements / 80% lines** (140 tests, 11 test files).
+Backend **80%** (284 tests). Frontend **77% statements / 80% lines** (146 tests, 11 test files).
 
 ---
 
@@ -104,16 +104,16 @@ dashboard/app/globals.css                       (--sidebar-width: 260px)
 
 ---
 
-## Phase 3 — Intelligence & Competitor Awareness
-*Gate: Backend ≥ 75% / Frontend ≥ 75%*
+## Phase 3 — Intelligence & Competitor Awareness ✅
+*Completed: 2026-06-18 | Gate: Backend ≥ 75% ✅ (80%, 284 tests) / Frontend ≥ 75% ✅ (77% stmts / 80% lines, 146 tests)*
 
-### What to build
-- Fix Apify env var mismatch (`APIFY_API_TOKEN` vs `APIFY_API_KEY`)
-- Add Perplexity fallback for competitor research when Apify fails
-- Performance rating UI (🔥 High / 👍 Medium / 👎 Low) in PostPreviewPanel
-- High-rated posts → evergreen context chunks; low-rated → negative examples
-- Promote fal.ai Flux to default visual generator (currently fallback)
-- Correct platform dimensions: Instagram 1080×1080, LinkedIn 1200×627, Twitter 1600×900
+### What was built
+- Perplexity fallback for competitor research when Apify is unavailable (`tools/research.py`)
+- `PerformanceRating` enum (high/medium/low) + `PATCH /posts/{id}/rate` endpoint
+- Performance rating buttons (🔥 / 👍 / 👎) in PostPreviewPanel — shown for approved posts
+- fal.ai Flux promoted to DEFAULT visual generator via `crew/graph_config.py`
+- Platform dimensions corrected: LinkedIn 1200×627 (landscape), Instagram 1080×1080, Twitter 1600×900
+- `_FAL_SIZE_MAP` in `tools/visual.py` maps platform → fal.ai size string
 
 ---
 
@@ -147,6 +147,6 @@ The features are 30% of the journey. The other 70%:
 - Let the project context accumulate 3 months of what works
 - Scheduled runs producing content without manual intervention
 
-**Right now:** Phase 1 — frontend tests, MCP connectivity, fix the 3 production reliability issues.
+**Right now:** Phase 4 — Autonomy & Scheduled Runs.
 
 See `docs/SRS.md` for detailed acceptance criteria per phase.

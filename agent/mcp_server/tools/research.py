@@ -95,6 +95,40 @@ async def tool_research_trends(
     ).model_dump()
 
 
+async def _perplexity_competitor_fallback(platform: str, handle: str) -> list:
+    """Query Perplexity sonar for recent competitor content when Apify is unavailable."""
+    px_key = os.getenv("PERPLEXITY_API_KEY", "")
+    if not px_key:
+        return []
+
+    query = f"Recent social media posts by {handle} on {platform} in 2026"
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                "https://api.perplexity.ai/chat/completions",
+                headers={"Authorization": f"Bearer {px_key}"},
+                json={
+                    "model": "sonar",
+                    "messages": [{"role": "user", "content": query}],
+                    "search_recency_filter": "month",
+                },
+            )
+            resp.raise_for_status()
+            content = resp.json()["choices"][0]["message"]["content"]
+    except Exception as exc:
+        logger.warning("Perplexity competitor fallback error for %s/%s: %s", platform, handle, exc)
+        return []
+
+    return [CompetitorPost(
+        platform=platform,
+        handle=handle,
+        text=content[:500],
+        likes=0,
+        comments=0,
+        shares=0,
+    ).model_dump()]
+
+
 async def tool_scrape_competitor(platform: str, handle: str, limit: int = 20) -> list:
     apify_token = os.getenv("APIFY_API_TOKEN", "")
     actor_map = {
@@ -107,7 +141,7 @@ async def tool_scrape_competitor(platform: str, handle: str, limit: int = 20) ->
         logger.warning("scrape_competitor: unsupported platform %s", platform)
         return []
     if not apify_token:
-        return []
+        return await _perplexity_competitor_fallback(platform, handle)
 
     url_map = {
         "linkedin": f"https://www.linkedin.com/in/{handle}",
@@ -125,8 +159,8 @@ async def tool_scrape_competitor(platform: str, handle: str, limit: int = 20) ->
             resp.raise_for_status()
             items = resp.json()
     except Exception as exc:
-        logger.warning("scrape_competitor Apify error for %s/%s: %s", platform, handle, exc)
-        return []
+        logger.warning("scrape_competitor Apify error for %s/%s: %s — trying Perplexity fallback", platform, handle, exc)
+        return await _perplexity_competitor_fallback(platform, handle)
 
     return [
         CompetitorPost(

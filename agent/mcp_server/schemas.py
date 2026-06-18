@@ -1,7 +1,14 @@
 """Pydantic models for the MCP server."""
 from datetime import datetime
+from enum import Enum
 from typing import Optional
 from pydantic import BaseModel
+
+
+class PerformanceRating(str, Enum):
+    high = "high"
+    medium = "medium"
+    low = "low"
 
 
 class ResearchBrief(BaseModel):
