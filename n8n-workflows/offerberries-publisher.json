@@ -1,0 +1,139 @@
+{
+  "name": "OfferBerries Post Publisher",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "minutes", "minutesInterval": 30 }]
+        }
+      },
+      "id": "trigger",
+      "name": "Every 30 Minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "http://mcp-server:8000/queue",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "status", "value": "approved" },
+            { "name": "limit", "value": "50" }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "X-API-Key", "value": "={{ $env.MCP_API_KEY }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "get-approved",
+      "name": "Get Approved Posts",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const now = new Date();\nconst posts = Array.isArray($input.first().json) ? $input.first().json : [];\nreturn posts\n  .filter(p => p && p.scheduled_at && new Date(p.scheduled_at) <= now)\n  .map(p => {\n    const hashtags = Array.isArray(p.hashtags) ? p.hashtags.join(' ') : (p.hashtags || '');\n    const cta = p.cta || '';\n    const emoji = { linkedin: '💼', twitter: '🐦', instagram: '📸', youtube: '🎬', email: '📧' }[p.platform] || '📱';\n    const platform = (p.platform || '').charAt(0).toUpperCase() + (p.platform || '').slice(1);\n    const time = new Date(p.scheduled_at).toLocaleString('en-PK', { timeZone: 'Asia/Karachi', dateStyle: 'long', timeStyle: 'short' });\n    const subject = `${emoji} ${platform} Post Ready — ${time} PKT`;\n    const imageBlock = p.preview_url\n      ? `<img src=\"${p.preview_url}\" style=\"width:100%;max-width:600px;border-radius:10px;margin:16px 0;display:block\" alt=\"Visual\" />`\n      : '';\n    const hashtagHtml = hashtags\n      ? `<p style=\"color:#0077b5;font-size:14px;margin:8px 0\">${hashtags}</p>`\n      : '';\n    const ctaHtml = cta\n      ? `<p style=\"margin:12px 0\"><strong>👉 ${cta}</strong></p>`\n      : '';\n    const html = `<!DOCTYPE html><html><body style=\"font-family:sans-serif;background:#f9f9f9;padding:24px\">\n<div style=\"max-width:600px;margin:0 auto;background:#fff;border-radius:12px;padding:24px;box-shadow:0 2px 8px rgba(0,0,0,.08)\">\n  <h2 style=\"margin:0 0 4px\">${emoji} ${platform} Post Ready</h2>\n  <p style=\"color:#888;font-size:13px;margin:0 0 16px\">📅 ${time} PKT</p>\n  ${imageBlock}\n  <div style=\"background:#f4f4f4;padding:16px;border-radius:8px;margin:8px 0\">\n    <p style=\"white-space:pre-wrap;margin:0 0 12px\">${(p.caption || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</p>\n    ${hashtagHtml}\n    ${ctaHtml}\n  </div>\n  <p style=\"color:#bbb;font-size:11px;margin:16px 0 0\">Post ID: ${p.postiz_id}</p>\n</div>\n</body></html>`;\n    return { json: { ...p, subject, html } };\n  });"
+      },
+      "id": "filter-format",
+      "name": "Filter & Format",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true },
+          "conditions": [
+            {
+              "id": "has-items",
+              "leftValue": "={{ $input.all().length }}",
+              "rightValue": 0,
+              "operator": { "type": "number", "operation": "gt" }
+            }
+          ]
+        }
+      },
+      "id": "has-posts",
+      "name": "Any Posts Ready?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.resend.com/emails",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $env.RESEND_API_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"from\": \"OfferBerries Posts <posts@offerberriesvo.com>\",\n  \"to\": [\"{{ $env.RESEND_TO_EMAIL }}\"],\n  \"subject\": \"{{ $json.subject }}\",\n  \"html\": {{ JSON.stringify($json.html) }}\n}",
+        "options": {}
+      },
+      "id": "send-email",
+      "name": "Send Email via Resend",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://mcp-server:8000/queue/{{ $json.postiz_id }}/mark-published",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "X-API-Key", "value": "={{ $env.MCP_API_KEY }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "mark-published",
+      "name": "Mark as Published",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1340, 300]
+    }
+  ],
+  "connections": {
+    "Every 30 Minutes": {
+      "main": [[{ "node": "Get Approved Posts", "type": "main", "index": 0 }]]
+    },
+    "Get Approved Posts": {
+      "main": [[{ "node": "Filter & Format", "type": "main", "index": 0 }]]
+    },
+    "Filter & Format": {
+      "main": [[{ "node": "Any Posts Ready?", "type": "main", "index": 0 }]]
+    },
+    "Any Posts Ready?": {
+      "main": [
+        [{ "node": "Send Email via Resend", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "Send Email via Resend": {
+      "main": [[{ "node": "Mark as Published", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "tags": ["offerberries", "publishing"],
+  "triggerCount": 1
+}

@@ -74,6 +74,22 @@ async def rest_rate_post(
     return {"rated": True, "post_id": post_id, "rating": req.rating.value}
 
 
+@router.post("/queue/{post_id}/mark-published")
+async def rest_mark_published(
+    post_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    tenant = await _m.get_tenant(x_api_key, authorization)
+    result = await _m.db["posts"].update_one(
+        {"postiz_id": post_id, "tenant_id": tenant.tenant_id},
+        {"$set": {"status": "published", "published_at": datetime.now(timezone.utc)}},
+    )
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Post not found")
+    return {"published": True, "post_id": post_id}
+
+
 @router.delete("/queue/{post_id}")
 async def rest_delete_post(
     post_id: str,
