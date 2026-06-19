@@ -11,6 +11,7 @@ export interface Project {
   color: string;
   icon: string;
   starred?: boolean;
+  memory_enabled: boolean;
   run_count: number;
   created_at?: string;
 }
@@ -23,6 +24,7 @@ export interface CreateProjectInput {
   default_model?: string;
   color?: string;
   icon?: string;
+  memory_enabled?: boolean;
 }
 
 export function useProjects() {
@@ -58,6 +60,7 @@ export function useProjects() {
       default_model: input.default_model ?? 'sonar-pro',
       color: input.color ?? '#6366F1',
       icon: input.icon ?? '📁',
+      memory_enabled: input.memory_enabled ?? true,
       run_count: 0,
     };
     setProjects(prev => [...prev, optimistic]);

@@ -202,6 +202,7 @@ class ProjectDoc(BaseModel):
     color: str = "#6366F1"
     icon: str = "📁"
     starred: bool = False
+    memory_enabled: bool = True
     is_active: bool = True
     archived_at: Optional[datetime] = None
     created_at: Optional[datetime] = None
@@ -223,6 +224,7 @@ class ProjectCreateRequest(BaseModel):
     default_steps: list[str] = ["research", "content_generation", "visual_generation"]
     color: str = "#6366F1"
     icon: str = "📁"
+    memory_enabled: bool = True
 
 
 class ProjectUpdateRequest(BaseModel):
@@ -235,6 +237,7 @@ class ProjectUpdateRequest(BaseModel):
     color: Optional[str] = None
     icon: Optional[str] = None
     starred: Optional[bool] = None
+    memory_enabled: Optional[bool] = None
     schedule_enabled: Optional[bool] = None
     schedule_frequency: Optional[str] = None
     schedule_cron: Optional[str] = None

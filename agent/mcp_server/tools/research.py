@@ -19,12 +19,18 @@ async def tool_research_trends(
     recency_filter: str = "week",
     run_id: str = "",
     tenant_id: str = "",
+    prior_context: list[str] | None = None,
 ) -> dict:
     import main as _m
 
     client = get_perplexity_client()
     try:
-        result = await client.research(topic=topic, platform=platform, model=model)
+        result = await client.research(
+            topic=topic,
+            platform=platform,
+            model=model,
+            prior_context=prior_context or [],
+        )
     except PerplexityError as exc:
         logger.warning("Perplexity error [%s]: %s", exc.error_type, exc.message)
         await _m.log_tool_call(

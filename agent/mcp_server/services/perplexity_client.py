@@ -78,7 +78,13 @@ class PerplexityClient:
     BASE_URL = "https://api.perplexity.ai/chat/completions"
     TIMEOUT = 15.0
 
-    async def research(self, topic: str, platform: str, model: str = "sonar") -> ResearchResult:
+    async def research(
+        self,
+        topic: str,
+        platform: str,
+        model: str = "sonar",
+        prior_context: list[str] | None = None,
+    ) -> ResearchResult:
         """Research trending angles for the given topic and platform.
 
         Raises:
@@ -99,6 +105,20 @@ class PerplexityClient:
             f"List 5-8 specific trends with brief descriptions."
         )
 
+        messages: list[dict] = []
+        if prior_context:
+            context_block = "\n".join(f"- {c}" for c in prior_context[:5])
+            messages.append({
+                "role": "system",
+                "content": (
+                    "You are a social media marketing expert. "
+                    "The following content was already created for this project — "
+                    "suggest fresh angles that complement rather than repeat these:\n"
+                    f"{context_block}"
+                ),
+            })
+        messages.append({"role": "user", "content": prompt})
+
         try:
             async with httpx.AsyncClient(timeout=self.TIMEOUT) as client:
                 resp = await client.post(
@@ -106,7 +126,7 @@ class PerplexityClient:
                     headers={"Authorization": f"Bearer {api_key}"},
                     json={
                         "model": model,
-                        "messages": [{"role": "user", "content": prompt}],
+                        "messages": messages,
                         "return_citations": True,
                     },
                 )
@@ -185,7 +205,7 @@ class PerplexityClient:
 class MockPerplexityClient:
     """Returns deterministic fixture data. Only instantiated when APP_ENV=test."""
 
-    async def research(self, topic: str, platform: str, model: str = "sonar") -> ResearchResult:
+    async def research(self, topic: str, platform: str, model: str = "sonar", prior_context: list[str] | None = None) -> ResearchResult:
         return ResearchResult(
             topic=topic,
             trends=[

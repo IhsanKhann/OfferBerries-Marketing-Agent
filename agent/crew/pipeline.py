@@ -232,6 +232,17 @@ async def execute_pipeline(run: AgentRun, db, redis_client):
 
     run_id = run.id
 
+    # Resolve project memory settings
+    project_id: Optional[str] = run.project_id
+    memory_enabled = False
+    if project_id and db is not None:
+        try:
+            proj_doc = await db["projects"].find_one({"id": project_id}, {"memory_enabled": 1})
+            if proj_doc:
+                memory_enabled = bool(proj_doc.get("memory_enabled", True))
+        except Exception as exc:
+            logger.warning("Could not fetch project %s for memory setting: %s", project_id, exc)
+
     state: AgentState = {
         "topic": run.topic,
         "platform_filter": run.platforms,
@@ -243,6 +254,10 @@ async def execute_pipeline(run: AgentRun, db, redis_client):
         "errors": [],
         "run_id": run_id,
         "dry_run": False,
+        "project_id": project_id,
+        "memory_enabled": memory_enabled,
+        "prior_context": [],
+        "tenant_id": run.tenant_id,
     }
 
     # Resolve tenant-configured models (Settings page writes these to configs)
@@ -358,6 +373,31 @@ async def execute_pipeline(run: AgentRun, db, redis_client):
 
     await _set_overall_status(db, redis_client, run_id, "completed")
     await _clear_signals(redis_client, run_id)
+
+    # Store run context chunks if project memory is enabled
+    if memory_enabled and project_id:
+        try:
+            import sys
+            # Import context_service from the MCP server package
+            mcp_path = os.path.join(os.path.dirname(__file__), "..", "mcp_server")
+            if mcp_path not in sys.path:
+                sys.path.insert(0, os.path.abspath(mcp_path))
+            from services.context_service import store_run_context
+            openai_key = os.getenv("OPENAI_API_KEY", "")
+            posts_cursor = db["posts"].find({"run_id": run_id}, {"copy": 1, "platform": 1, "_id": 0})
+            posts = await posts_cursor.to_list(length=50)
+            run_dict = run.to_mongo()
+            run_dict["id"] = run_id
+            await store_run_context(
+                db=db,
+                run=run_dict,
+                research_brief=state.get("brief") or {},
+                posts=posts,
+                api_key=openai_key,
+            )
+            logger.info("[%s] Stored run context chunks for project %s", run_id, project_id)
+        except Exception as exc:
+            logger.warning("[%s] store_run_context failed (non-fatal): %s", run_id, exc)
 
 
 async def rerun_stage(run: AgentRun, stage_name: str, db, redis_client):
