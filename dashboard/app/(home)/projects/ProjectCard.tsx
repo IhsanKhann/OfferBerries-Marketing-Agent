@@ -1,6 +1,6 @@
 'use client';
 import { useRouter } from 'next/navigation';
-import { ArrowRight, MessageSquare, Brain } from 'lucide-react';
+import { ArrowRight, MessageSquare, Brain, FolderOpen } from 'lucide-react';
 import type { Project } from '@/hooks/useProjects';
 
 function timeAgo(iso?: string): string {
@@ -28,7 +28,7 @@ export function ProjectCard({ project }: { project: Project }) {
       <div className="project-card-color-bar" style={{ background: project.color }} />
       <div className="project-card-body">
         <div className="project-card-icon-row">
-          <span className="project-card-icon">{project.icon}</span>
+          <span className="project-card-icon"><FolderOpen size={28} style={{ color: project.color }} /></span>
           <ArrowRight size={14} className="project-card-arrow" />
         </div>
         <h3 className="project-card-name">{project.name}</h3>

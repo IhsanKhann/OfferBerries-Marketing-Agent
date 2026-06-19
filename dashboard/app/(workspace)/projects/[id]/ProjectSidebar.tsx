@@ -1,8 +1,8 @@
 'use client';
 import { useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { ArrowLeft, Plus, Search, Settings, User, Circle } from 'lucide-react';
+import { useRouter, usePathname } from 'next/navigation';
+import { ArrowLeft, Plus, Search, Folder, Circle, PlayCircle, BarChart2, Activity, Layout } from 'lucide-react';
 import { useProjectRuns } from '@/hooks/useProjectRuns';
 import type { Project } from '@/hooks/useProjects';
 
@@ -28,8 +28,17 @@ function truncateTopic(topic: string, max = 34): string {
 
 export function ProjectSidebar({ project, activeRunId, onNewChat }: Props) {
   const router = useRouter();
+  const pathname = usePathname();
   const { groups, loading } = useProjectRuns(project.id);
   const [search, setSearch] = useState('');
+
+  const projectBase = `/projects/${project.id}`;
+  const navLinks = [
+    { href: `${projectBase}/runs`,      label: 'Runs',      icon: PlayCircle },
+    { href: `${projectBase}/analytics`, label: 'Analytics', icon: BarChart2 },
+    { href: `${projectBase}/usage`,     label: 'Usage',     icon: Activity },
+    { href: `${projectBase}/templates`, label: 'Templates', icon: Layout },
+  ];
 
   const filtered = search.trim()
     ? groups.map(g => ({
@@ -52,7 +61,7 @@ export function ProjectSidebar({ project, activeRunId, onNewChat }: Props) {
 
       {/* Project header */}
       <div className="project-sidebar-project-header">
-        <span className="project-sidebar-project-icon">{project.icon}</span>
+        <span className="project-sidebar-project-icon"><Folder size={18} /></span>
         <div className="project-sidebar-project-meta">
           <div className="project-sidebar-project-name">{project.name}</div>
           {project.memory_enabled && (
@@ -121,16 +130,21 @@ export function ProjectSidebar({ project, activeRunId, onNewChat }: Props) {
         )}
       </div>
 
-      {/* Bottom nav */}
+      {/* Bottom nav — project-scoped links */}
       <div className="project-sidebar-bottom">
-        <Link href="/settings" className="project-sidebar-nav-link">
-          <Settings size={15} />
-          <span>Settings</span>
-        </Link>
-        <Link href="/usage" className="project-sidebar-nav-link">
-          <User size={15} />
-          <span>Profile</span>
-        </Link>
+        {navLinks.map(({ href, label, icon: Icon }) => {
+          const active = pathname === href || pathname.startsWith(href + '/');
+          return (
+            <Link
+              key={href}
+              href={href}
+              className={`project-sidebar-nav-link${active ? ' project-sidebar-nav-link--active' : ''}`}
+            >
+              <Icon size={15} />
+              <span>{label}</span>
+            </Link>
+          );
+        })}
       </div>
     </aside>
   );

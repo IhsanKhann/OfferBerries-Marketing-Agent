@@ -21,7 +21,7 @@ export default function LoginPage() {
       });
       if (res.ok) {
         notify.success('Welcome back!', 'Redirecting to dashboard…');
-        router.push('/queue');
+        router.push('/projects');
       } else {
         setError('Invalid API key — check your key and try again.');
         notify.error('Invalid API key', 'Check your key and try again');

@@ -1054,7 +1054,7 @@ tbody tr:hover td { background: var(--bg-subtle); }
 /* Sidebar nav no longer grows — run history takes the flex-1 slot */
 .sidebar-nav { flex: 0 0 auto; }
 
-/* Queue shell — full viewport height, flex column, panels positioned inside */
+/* Queue shell — full viewport height on /queue; overridden to height:100% inside workspace-main */
 .queue-shell {
   height: 100vh;
   display: flex;
@@ -1861,6 +1861,81 @@ tbody tr:hover td { background: var(--bg-subtle); }
   color: var(--sidebar-text-hover);
 }
 
+/* ─── Sidebar: Projects section ───────────────────────────────── */
+.sidebar-projects {
+  padding: 0 8px 8px;
+  flex-shrink: 0;
+}
+.sidebar-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 4px 4px;
+}
+.sidebar-new-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  color: var(--sidebar-text);
+  transition: background 0.15s, color 0.15s;
+  text-decoration: none;
+}
+.sidebar-new-icon-btn:hover {
+  background: rgba(255,255,255,0.07);
+  color: var(--sidebar-text-hover);
+  text-decoration: none;
+}
+.sidebar-project-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  text-decoration: none;
+  color: var(--sidebar-text-hover);
+  font-size: 12px;
+  font-weight: 500;
+  transition: background 0.15s;
+  margin-bottom: 1px;
+  min-width: 0;
+}
+.sidebar-project-item:hover {
+  background: rgba(255,255,255,0.05);
+  text-decoration: none;
+}
+.sidebar-project-item.active {
+  background: var(--sidebar-active-bg);
+  color: var(--sidebar-text-active);
+}
+.sidebar-project-icon {
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: white;
+}
+.sidebar-project-name {
+  flex: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.sidebar-project-badge {
+  font-size: 10px;
+  color: var(--sidebar-text);
+  background: rgba(255,255,255,0.06);
+  padding: 1px 5px;
+  border-radius: 9999px;
+  flex-shrink: 0;
+}
+.sidebar.collapsed .sidebar-projects { display: none; }
+
 /* Pipeline toggle chip in topbar */
 .pipeline-toggle-btn {
   display: inline-flex;
@@ -2152,7 +2227,8 @@ tbody tr:hover td { background: var(--bg-subtle); }
 }
 
 .project-card-icon {
-  font-size: 24px;
+  display: flex;
+  align-items: center;
   line-height: 1;
 }
 
@@ -2639,6 +2715,7 @@ tbody tr:hover td { background: var(--bg-subtle); }
 .workspace-main {
   flex: 1;
   min-width: 0;
+  height: 100%;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -2733,10 +2810,13 @@ tbody tr:hover td { background: var(--bg-subtle); }
 }
 
 .project-sidebar-project-icon {
-  font-size: 22px;
-  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
   flex-shrink: 0;
-  margin-top: 2px;
+  color: rgba(255,255,255,0.75);
 }
 
 .project-sidebar-project-meta { flex: 1; min-width: 0; }
@@ -2902,6 +2982,13 @@ tbody tr:hover td { background: var(--bg-subtle); }
 .project-sidebar-nav-link:hover {
   background: rgba(255,255,255,0.07);
   color: rgba(255,255,255,0.85);
+}
+.project-sidebar-nav-link--active {
+  background: rgba(99,102,241,0.15);
+  color: rgba(255,255,255,0.9);
+}
+.project-sidebar-nav-link--active:hover {
+  background: rgba(99,102,241,0.2);
 }
 
 /* Sidebar skeleton */

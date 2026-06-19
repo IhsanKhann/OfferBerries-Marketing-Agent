@@ -157,7 +157,7 @@ export function Sidebar() {
               className={`sidebar-project-item${active ? ' active' : ''}`}
               title={collapsed ? proj.name : undefined}
             >
-              <span className="sidebar-project-icon" style={{ background: proj.color }}>{proj.icon}</span>
+              <span className="sidebar-project-icon" style={{ background: proj.color }}><FolderOpen size={12} /></span>
               <span className="sidebar-project-name">{proj.name}</span>
               {proj.run_count > 0 && (
                 <span className="sidebar-project-badge">{proj.run_count}</span>

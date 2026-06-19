@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { notify } from '../lib/toast';
 import type { AgentError } from '../components/AgentErrorBanner';
 
@@ -25,8 +25,8 @@ function computeStepStatus(idx: number, overall: RunStatus, currentStage: string
 }
 
 export const RESEARCH_MODELS = [
-  { id: 'sonar',               label: 'Sonar',         badge: '−$0.001' },
   { id: 'sonar-pro',           label: 'Sonar Pro',     badge: '−$0.004' },
+  { id: 'sonar',               label: 'Sonar',         badge: '−$0.001' },
   { id: 'sonar-deep-research', label: 'Deep Research', badge: '−$0.056' },
 ];
 
@@ -45,12 +45,36 @@ export const STEPS = [
   { label: 'Scheduling',         meta: 'Postiz' },
 ];
 
+const STAGE_MESSAGES: Record<string, string> = {
+  research:           '🔍 Researching trends with Perplexity…',
+  content_generation: '✍️ Generating content with Claude…',
+  visual_generation:  '🎨 Rendering visuals…',
+  scheduling:         '📅 Scheduling posts…',
+};
+
+async function fetchCitations(runId: string): Promise<string[]> {
+  try {
+    const res = await fetch(`/api/proxy/runs/${runId}`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    const researchOutput = data.stages?.research?.output;
+    if (!researchOutput) return [];
+    const raw = researchOutput.platform_notes?.citations ?? researchOutput.citations ?? '';
+    if (!raw) return [];
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    return Array.isArray(parsed) ? parsed.filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
+
 export function useAgentRun(onComplete: () => void, onMessage: (msg: string) => void) {
   const [runId, setRunId]           = useState<string | null>(null);
   const [runStatus, setRunStatus]   = useState<RunStatus>('idle');
   const [currentStage, setCurrentStage] = useState('');
+  const prevStageRef = useRef('');
   const [running, setRunning]       = useState(false);
-  const [researchModel, setResearchModel] = useState('sonar');
+  const [researchModel, setResearchModel] = useState('sonar-pro');
   const [contentModel, setContentModel]   = useState('anthropic/claude-sonnet-4-6');
   const [agentError, setAgentError] = useState<AgentError | null>(null);
 
@@ -67,8 +91,28 @@ export function useAgentRun(onComplete: () => void, onMessage: (msg: string) => 
         if (!res.ok) return;
         const data = await res.json();
         const status: RunStatus = data.overall_status ?? 'idle';
+        const stage: string = data.current_stage ?? '';
         setRunStatus(status);
-        setCurrentStage(data.current_stage ?? '');
+        setCurrentStage(stage);
+
+        // Announce stage transitions
+        if (stage && stage !== prevStageRef.current) {
+          const stageMsg = STAGE_MESSAGES[stage];
+          if (stageMsg) onMessage(stageMsg);
+
+          // When research finishes (moving to content_generation), show citations
+          if (prevStageRef.current === 'research' && stage === 'content_generation') {
+            fetchCitations(runId).then(citations => {
+              if (citations.length > 0) {
+                const citationText = '📚 **Sources from Perplexity:**\n' +
+                  citations.map((url, idx) => `[${idx + 1}] ${url}`).join('\n');
+                onMessage(citationText);
+              }
+            });
+          }
+          prevStageRef.current = stage;
+        }
+
         if (status === 'completed') {
           clearInterval(t);
           setRunning(false);
@@ -91,6 +135,7 @@ export function useAgentRun(onComplete: () => void, onMessage: (msg: string) => 
     setRunning(true);
     setRunStatus('starting');
     setCurrentStage('');
+    prevStageRef.current = '';
     setAgentError(null);
 
     try {

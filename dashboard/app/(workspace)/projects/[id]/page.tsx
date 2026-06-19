@@ -77,7 +77,7 @@ export default function ProjectWorkspacePage() {
   const [filter, setFilter] = useState('all');
   const [topic, setTopic] = useState('');
   const [activePlatforms, setActivePlatforms] = useState<string[]>(['LinkedIn', 'Instagram']);
-  const [pipelineOpen, setPipelineOpen] = useState(false);
+  const [pipelineOpen, setPipelineOpen] = useState(true);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
 
   const chatRef = useRef<HTMLDivElement>(null);

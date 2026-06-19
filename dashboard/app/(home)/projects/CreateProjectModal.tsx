@@ -10,8 +10,6 @@ const COLORS = [
   '#D97706', '#DC2626', '#DB2777', '#0284C7',
 ];
 
-const ICONS = ['📁', '🚀', '🎯', '🌙', '⭐', '🔥', '💡', '📊', '🌿', '🎨', '💼', '📣'];
-
 const PLATFORMS = [
   { id: 'linkedin', label: 'LinkedIn' },
   { id: 'instagram', label: 'Instagram' },
@@ -38,7 +36,6 @@ export function CreateProjectModal({ onClose, onCreate }: Props) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [color, setColor] = useState(COLORS[0]);
-  const [icon, setIcon] = useState('📁');
 
   const [brandVoice, setBrandVoice] = useState('');
   const [platforms, setPlatforms] = useState<string[]>(['linkedin', 'instagram']);
@@ -63,7 +60,7 @@ export function CreateProjectModal({ onClose, onCreate }: Props) {
         default_platforms: platforms,
         default_model: model,
         color,
-        icon,
+        icon: 'folder',
         memory_enabled: memoryEnabled,
       });
       toast.success(`"${project.name}" created`);
@@ -123,21 +120,6 @@ export function CreateProjectModal({ onClose, onCreate }: Props) {
                   onChange={e => setDescription(e.target.value)}
                   rows={2}
                 />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Icon</label>
-                <div className="icon-picker-grid">
-                  {ICONS.map(ic => (
-                    <button
-                      key={ic}
-                      className={`icon-picker-item ${icon === ic ? 'icon-picker-item--active' : ''}`}
-                      onClick={() => setIcon(ic)}
-                      type="button"
-                    >
-                      {ic}
-                    </button>
-                  ))}
-                </div>
               </div>
               <div className="form-group">
                 <label className="form-label">Color</label>
