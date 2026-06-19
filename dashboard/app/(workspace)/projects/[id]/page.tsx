@@ -1,22 +1,28 @@
 'use client';
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, useSearchParams, useRouter } from 'next/navigation';
-import { Linkedin, Twitter, Instagram, Youtube, Mail, CheckCircle, XCircle, Cpu } from 'lucide-react';
+import { Linkedin, Twitter, Instagram, Youtube, Mail, CheckCircle, XCircle, Cpu, X, Images } from 'lucide-react';
 import { toast } from 'sonner';
 import AgentErrorBanner from '@/components/AgentErrorBanner';
 import AgentChatThread, { ChatMessage } from '@/app/(app)/queue/AgentChatThread';
 import AgentInputBar from '@/app/(app)/queue/AgentInputBar';
 import ImageAttachPreview from '@/app/(app)/queue/ImageAttachPreview';
-import PostCard from '@/app/(app)/queue/PostCard';
 import PostPreviewPanel from '@/app/(app)/queue/PostPreviewPanel';
-import AgentPipelinePanel from '@/app/(app)/queue/AgentPipelinePanel';
-import { useAgentRun } from '@/hooks/useAgentRun';
+import { useAgentRun, STEPS } from '@/hooks/useAgentRun';
 import { useImageAttach } from '@/hooks/useImageAttach';
 import { usePostPreview, PreviewPost } from '@/hooks/usePostPreview';
 import { ProjectSidebar } from './ProjectSidebar';
+import { OptionsModal } from './OptionsModal';
 import type { Project } from '@/hooks/useProjects';
+import type { StepStatus } from '@/hooks/useAgentRun';
 
-const PLATFORMS = ['LinkedIn', 'Twitter', 'Instagram', 'YouTube', 'Email'];
+const GREETINGS = [
+  'Start when you are ready',
+  'What would you like to create today',
+  'Ready to research and publish',
+  "Let's build something great",
+  'What should we research today',
+];
 
 const PLATFORM_ICON: Record<string, React.ElementType> = {
   linkedin: Linkedin, twitter: Twitter, instagram: Instagram,
@@ -28,39 +34,38 @@ const PLATFORM_COLOR: Record<string, string> = {
   youtube: '#FF0000', email: '#6366F1',
 };
 
-const LOADER_MESSAGES = [
-  'Researching trends…',
-  'Analysing competitors…',
-  'Crafting content…',
-  'Generating visuals…',
-  'Queuing posts…',
-];
-
-function RunningLoader({ stage }: { stage: string }) {
-  const [msgIdx, setMsgIdx] = useState(0);
-
-  useEffect(() => {
-    const map: Record<string, number> = {
-      research: 0, content_generation: 2, visual_generation: 3, scheduling: 4,
-    };
-    setMsgIdx(map[stage] ?? 0);
-    const t = setInterval(() => setMsgIdx(i => (i + 1) % LOADER_MESSAGES.length), 3000);
-    return () => clearInterval(t);
-  }, [stage]);
-
+function PipelinePanel({ stepStatuses, runId }: { stepStatuses: StepStatus[]; runId: string | null }) {
   return (
-    <div className="workspace-running-loader">
-      <span className="workspace-loader-dot" />
-      <span className="workspace-loader-text">{LOADER_MESSAGES[msgIdx]}</span>
+    <div className="ws-pipeline-body">
+      <div className="stepper">
+        {STEPS.map((step, i) => {
+          const status = stepStatuses[i] ?? 'pending';
+          const isRunning = status === 'running';
+          const prevDone = i > 0 && (stepStatuses[i - 1] ?? 'pending') === 'done';
+          return (
+            <div key={i}>
+              {i > 0 && <div className={`pipeline-connector${prevDone ? ' pipeline-connector--done' : ''}`} />}
+              <div className={`step-item${isRunning ? ' pipeline-node--running' : ''}`}>
+                <div className={`step-dot ${status}`}>
+                  {status === 'done'
+                    ? '✓'
+                    : status === 'running'
+                    ? <span className="spinner" style={{ width: 10, height: 10, borderWidth: 1.5 }} />
+                    : status === 'failed'
+                    ? '✗'
+                    : i + 1}
+                </div>
+                <div className="step-content">
+                  <div className="step-title">{step.label}</div>
+                  <div className="step-meta">{step.meta}</div>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
-}
-
-function makeInitialMessage(project: Project): ChatMessage {
-  return {
-    role: 'assistant',
-    content: `Hi! I'm ready to create content for **${project.name}**${project.brand_voice ? ` with your brand voice` : ''}. What topic should I research?${project.memory_enabled ? '\n\n🧠 *Memory is on — I\'ll build on past chats in this project.*' : ''}`,
-  };
 }
 
 export default function ProjectWorkspacePage() {
@@ -69,20 +74,23 @@ export default function ProjectWorkspacePage() {
   const activeRunId = searchParams.get('run');
   const router = useRouter();
 
-  const [project, setProject] = useState<Project | null>(null);
+  const [project, setProject]           = useState<Project | null>(null);
   const [projectLoading, setProjectLoading] = useState(true);
-
-  const [posts, setPosts] = useState<PreviewPost[]>([]);
+  const [posts, setPosts]               = useState<PreviewPost[]>([]);
   const [postsLoading, setPostsLoading] = useState(false);
-  const [filter, setFilter] = useState('all');
-  const [topic, setTopic] = useState('');
+  const [filter, setFilter]             = useState('all');
+  const [topic, setTopic]               = useState('');
   const [activePlatforms, setActivePlatforms] = useState<string[]>(['LinkedIn', 'Instagram']);
-  const [pipelineOpen, setPipelineOpen] = useState(true);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [rightTab, setRightTab]         = useState<null | 'pipeline' | 'posts'>(null);
+  const [optionsOpen, setOptionsOpen]   = useState(false);
+  const [messages, setMessages]         = useState<ChatMessage[]>([]);
+
+  const [greetingText] = useState(
+    () => GREETINGS[Math.floor(Math.random() * GREETINGS.length)]
+  );
 
   const chatRef = useRef<HTMLDivElement>(null);
 
-  // Load project
   useEffect(() => {
     setProjectLoading(true);
     fetch(`/api/proxy/projects/${projectId}`)
@@ -94,7 +102,6 @@ export default function ProjectWorkspacePage() {
             (data.default_platforms ?? ['linkedin', 'instagram'])
               .map((p: string) => p.charAt(0).toUpperCase() + p.slice(1))
           );
-          setMessages([makeInitialMessage(data)]);
         }
       })
       .finally(() => setProjectLoading(false));
@@ -119,8 +126,7 @@ export default function ProjectWorkspacePage() {
     runId, runStatus, currentStage, running,
     researchModel, setResearchModel,
     contentModel, setContentModel,
-    agentError, clearError,
-    startRun, stepStatuses,
+    agentError, clearError, startRun, stepStatuses,
   } = useAgentRun(fetchPosts, addMessage);
 
   const { images: attachedImages, addImages, removeImage } = useImageAttach();
@@ -132,10 +138,24 @@ export default function ProjectWorkspacePage() {
     if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight;
   }, [messages, running]);
 
+  // Auto-open pipeline panel when agent starts
+  useEffect(() => {
+    if (running) setRightTab('pipeline');
+  }, [running]);
+
+  // Switch to posts panel when run completes and posts are available
+  useEffect(() => {
+    if (runStatus === 'completed' && posts.length > 0) setRightTab('posts');
+  }, [runStatus, posts.length]);
+
   function togglePlatform(p: string) {
     setActivePlatforms(prev =>
       prev.includes(p) ? prev.filter(x => x !== p) : [...prev, p]
     );
+  }
+
+  function togglePanel(tab: 'pipeline' | 'posts') {
+    setRightTab(prev => prev === tab ? null : tab);
   }
 
   async function runAgent() {
@@ -160,11 +180,13 @@ export default function ProjectWorkspacePage() {
 
   function handleNewChat() {
     router.push(`/projects/${projectId}`);
-    setMessages(project ? [makeInitialMessage(project)] : []);
+    setMessages([]);
     setTopic('');
     setPosts([]);
+    setRightTab(null);
   }
 
+  // --- Skeleton loading ---
   if (projectLoading) {
     return (
       <div className="workspace-shell">
@@ -195,6 +217,8 @@ export default function ProjectWorkspacePage() {
     );
   }
 
+  const hasUserMessages = messages.some(m => m.role === 'user');
+
   return (
     <div className="workspace-shell">
       <ProjectSidebar
@@ -204,190 +228,202 @@ export default function ProjectWorkspacePage() {
       />
 
       <div className="workspace-main">
-        <div className="queue-shell" style={{ height: '100%' }}>
-          {/* Topbar */}
-          <div className="topbar">
-            <div>
-              <div className="topbar-title">{project.name}</div>
-              <div className="topbar-sub">
-                {posts.length} post{posts.length !== 1 ? 's' : ''} pending review
+        {/* Minimal topbar — only pipeline + posts buttons */}
+        <div className="ws-bar">
+          <div className="ws-bar-end">
+            <button
+              className={`ws-panel-btn${rightTab === 'posts' ? ' active' : ''}`}
+              onClick={() => togglePanel('posts')}
+            >
+              <Images size={13} />
+              Posts
+              {posts.length > 0 && <span className="ws-count">{posts.length}</span>}
+            </button>
+            <button
+              className={`ws-panel-btn${rightTab === 'pipeline' ? ' active' : ''}`}
+              onClick={() => togglePanel('pipeline')}
+            >
+              <Cpu size={13} />
+              Pipeline
+            </button>
+          </div>
+        </div>
+
+        {/* Body: chat + optional right panel */}
+        <div className="ws-body">
+          {/* Chat column */}
+          <div className="ws-chat">
+            {agentError && (
+              <div className="ws-error-banner">
+                <AgentErrorBanner
+                  error={agentError}
+                  onDismiss={clearError}
+                  onRetry={() => { clearError(); runAgent(); }}
+                  onResume={() => { clearError(); runAgent(); }}
+                />
               </div>
-            </div>
-            <div className="topbar-actions">
-              {PLATFORMS.map(p => (
-                <button
-                  key={p}
-                  onClick={() => togglePlatform(p)}
-                  className={`chip${activePlatforms.includes(p) ? ' active' : ''}`}
-                >
-                  {p}
-                </button>
-              ))}
-              <button
-                type="button"
-                className={`pipeline-toggle-btn${pipelineOpen ? ' active' : ''}`}
-                onClick={() => { setPipelineOpen(o => !o); if (previewOpen) closePost(); }}
-              >
-                <Cpu size={13} />
-                Pipeline
-              </button>
+            )}
+
+            <AgentChatThread
+              messages={messages}
+              running={running}
+              currentStage={currentStage}
+              runStatus={runStatus}
+              chatRef={chatRef}
+              header={!hasUserMessages ? (
+                <div className="ws-greeting">
+                  <div className="ws-greeting-title">{greetingText}</div>
+                  <div className="ws-greeting-sub">
+                    Choose platforms &amp; models via <strong>Options</strong>, then type a topic to begin.
+                  </div>
+                </div>
+              ) : undefined}
+            />
+
+            <div className="ws-input-wrap">
+              <ImageAttachPreview images={attachedImages} onRemove={removeImage} />
+              <AgentInputBar
+                topic={topic}
+                setTopic={setTopic}
+                running={running}
+                onRun={runAgent}
+                onOpenOptions={() => setOptionsOpen(true)}
+                onAttachFiles={addImages}
+                onAttachImages={addImages}
+              />
             </div>
           </div>
 
-          {/* Body */}
-          <div className="queue-body">
-            <div className="chat-column">
-              <div className="chat-column-inner">
-                {agentError && (
-                  <div style={{ paddingTop: 16, flexShrink: 0 }}>
-                    <AgentErrorBanner
-                      error={agentError}
-                      onDismiss={clearError}
-                      onRetry={() => { clearError(); runAgent(); }}
-                      onResume={() => { clearError(); runAgent(); }}
-                    />
-                  </div>
+          {/* Right panel */}
+          {rightTab && (
+            <div className="ws-right-panel">
+              <div className="ws-right-panel-hd">
+                <div className="ws-right-tabs">
+                  <button
+                    className={`ws-right-tab${rightTab === 'pipeline' ? ' active' : ''}`}
+                    onClick={() => setRightTab('pipeline')}
+                  >
+                    Pipeline
+                  </button>
+                  <button
+                    className={`ws-right-tab${rightTab === 'posts' ? ' active' : ''}`}
+                    onClick={() => setRightTab('posts')}
+                  >
+                    Posts
+                    {posts.length > 0 && <span className="ws-count">{posts.length}</span>}
+                  </button>
+                </div>
+                <button className="ws-right-close" onClick={() => setRightTab(null)}>
+                  <X size={14} />
+                </button>
+              </div>
+
+              <div className="ws-right-panel-body">
+                {rightTab === 'pipeline' && (
+                  <PipelinePanel stepStatuses={stepStatuses} runId={runId} />
                 )}
 
-                <AgentChatThread
-                  messages={messages}
-                  running={running}
-                  currentStage={currentStage}
-                  runStatus={runStatus}
-                  chatRef={chatRef}
-                />
-
-                {running && <RunningLoader stage={currentStage} />}
-
-                {!postsLoading && posts.length > 0 && runStatus === 'completed' && (
-                  <div style={{ paddingBottom: 8, flexShrink: 0 }}>
-                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6, fontWeight: 600 }}>
-                      Generated Posts
-                    </div>
-                    <div className="post-cards-row">
-                      {posts.map(post => (
-                        <PostCard
-                          key={post.postiz_id}
-                          post={post}
-                          onClick={() => { openPost(post); setPipelineOpen(false); }}
-                          onCopy={() => toast.success('Caption copied to clipboard')}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                <ImageAttachPreview images={attachedImages} onRemove={removeImage} />
-
-                <AgentInputBar
-                  topic={topic}
-                  setTopic={setTopic}
-                  running={running}
-                  onRun={runAgent}
-                  researchModel={researchModel}
-                  setResearchModel={setResearchModel}
-                  contentModel={contentModel}
-                  setContentModel={setContentModel}
-                  onAttachFiles={addImages}
-                  onAttachImages={addImages}
-                />
-
-                {/* Pending posts */}
-                <div className="pending-posts-section">
-                  <div className="pending-posts-header">
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span className="card-title" style={{ fontSize: 13 }}>Pending Posts</span>
-                      {posts.length > 0 && (
-                        <span className="badge badge-warning">{posts.length} awaiting review</span>
-                      )}
-                    </div>
-                    <div style={{ display: 'flex', gap: 4 }}>
-                      {['all', 'linkedin', 'twitter', 'instagram'].map(p => (
+                {rightTab === 'posts' && (
+                  <div className="ws-posts">
+                    <div style={{ display: 'flex', gap: 4, marginBottom: 12, flexWrap: 'wrap' }}>
+                      {([['all', 'All'], ['linkedin', 'LinkedIn'], ['twitter', 'Twitter'], ['instagram', 'Instagram']] as [string, string][]).map(([val, lbl]) => (
                         <button
-                          key={p}
-                          onClick={() => setFilter(p)}
-                          className={`chip${filter === p ? ' active' : ''}`}
+                          key={val}
+                          className={`chip${filter === val ? ' active' : ''}`}
                           style={{ fontSize: 11 }}
+                          onClick={() => setFilter(val)}
                         >
-                          {p === 'all' ? 'All' : p}
+                          {lbl}
                         </button>
                       ))}
                     </div>
-                  </div>
 
-                  <div className="pending-posts-scroll">
                     {postsLoading ? (
-                      <div className="empty-state" style={{ padding: '24px 0' }}>
-                        <span className="spinner spinner-dark" />
-                      </div>
+                      <div className="empty-state"><span className="spinner spinner-dark" /></div>
                     ) : posts.length === 0 ? (
-                      <div className="empty-state" style={{ padding: '32px 0' }}>
-                        <div className="empty-icon" style={{ fontSize: 28 }}>📋</div>
-                        <div className="empty-title">No posts in queue</div>
-                        <div className="empty-sub">
-                          Enter a topic above and press Run to generate content.
-                        </div>
+                      <div className="ws-posts-empty">
+                        <div style={{ fontSize: 28 }}>📋</div>
+                        <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>No posts yet</div>
+                        <div>Run the agent to generate content</div>
                       </div>
                     ) : (
-                      <div className="post-cards-grid">
-                        {posts.map(post => {
-                          const Icon  = PLATFORM_ICON[post.platform] ?? Mail;
-                          const color = PLATFORM_COLOR[post.platform] ?? 'var(--brand-primary)';
-                          return (
-                            <div
-                              key={post.postiz_id}
-                              style={{ border: '1px solid var(--border-default)', borderRadius: 'var(--radius-lg)', padding: '12px 14px', background: 'var(--bg-canvas)', display: 'flex', gap: 12, alignItems: 'flex-start' }}
-                            >
-                              <div style={{ width: 32, height: 32, borderRadius: 'var(--radius-md)', background: color, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                <Icon size={15} color="white" />
+                      posts.map(post => {
+                        const Icon  = PLATFORM_ICON[post.platform] ?? Mail;
+                        const color = PLATFORM_COLOR[post.platform] ?? 'var(--brand-primary)';
+                        return (
+                          <div key={post.postiz_id} className="ws-post-card">
+                            <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                              <div style={{ width: 30, height: 30, borderRadius: 8, background: color, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                <Icon size={14} color="white" />
                               </div>
                               <div style={{ flex: 1, minWidth: 0 }}>
                                 <div style={{ display: 'flex', gap: 4, marginBottom: 4, flexWrap: 'wrap', alignItems: 'center' }}>
-                                  <span className="badge" style={{ background: color + '18', color, borderColor: color + '40' }}>{post.platform}</span>
-                                  <span className={`badge ${post.status === 'approved' ? 'badge-success' : post.status === 'queued' ? 'badge-warning' : 'badge-muted'}`}>{post.status}</span>
+                                  <span className="badge" style={{ background: color + '18', color, borderColor: color + '40' }}>
+                                    {post.platform.charAt(0).toUpperCase() + post.platform.slice(1)}
+                                  </span>
+                                  <span className={`badge ${post.status === 'approved' ? 'badge-success' : post.status === 'queued' ? 'badge-warning' : 'badge-muted'}`}>
+                                    {post.status}
+                                  </span>
                                 </div>
-                                <p style={{ fontSize: 12, color: 'var(--text-primary)', lineHeight: 1.5, margin: 0, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+                                <p style={{ fontSize: 12, color: 'var(--text-primary)', lineHeight: 1.5, margin: 0, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' }}>
                                   {post.caption}
                                 </p>
                               </div>
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flexShrink: 0 }}>
-                                <button onClick={() => approvePost(post.postiz_id)} className="btn btn-sm" style={{ background: 'var(--success-bg)', color: 'var(--success-text)', border: '1px solid var(--success-border)', gap: 4 }}>
-                                  <CheckCircle size={11} /> Approve
-                                </button>
-                                <button onClick={() => rejectPost(post.postiz_id)} className="btn btn-danger btn-sm" style={{ gap: 4 }}>
-                                  <XCircle size={11} /> Reject
-                                </button>
-                                <button onClick={() => { openPost(post); setPipelineOpen(false); }} className="btn btn-secondary btn-sm" style={{ gap: 4 }}>
-                                  Preview
-                                </button>
-                              </div>
                             </div>
-                          );
-                        })}
-                      </div>
+                            <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
+                              <button
+                                onClick={() => approvePost(post.postiz_id)}
+                                className="btn btn-sm"
+                                style={{ flex: 1, background: 'var(--success-bg)', color: 'var(--success-text)', border: '1px solid var(--success-border)', gap: 4 }}
+                              >
+                                <CheckCircle size={11} /> Approve
+                              </button>
+                              <button
+                                onClick={() => openPost(post)}
+                                className="btn btn-secondary btn-sm"
+                                style={{ flex: 1 }}
+                              >
+                                Preview
+                              </button>
+                              <button
+                                onClick={() => rejectPost(post.postiz_id)}
+                                className="btn btn-danger btn-sm"
+                              >
+                                <XCircle size={11} />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })
                     )}
                   </div>
-                </div>
+                )}
               </div>
             </div>
-
-            <PostPreviewPanel
-              post={selectedPost}
-              isOpen={previewOpen}
-              onClose={closePost}
-              onApprove={approvePost}
-              onReject={rejectPost}
-            />
-
-            <AgentPipelinePanel
-              open={pipelineOpen}
-              onClose={() => setPipelineOpen(false)}
-              stepStatuses={stepStatuses}
-              runId={runId}
-            />
-          </div>
+          )}
         </div>
       </div>
+
+      {/* Options modal */}
+      <OptionsModal
+        open={optionsOpen}
+        onClose={() => setOptionsOpen(false)}
+        activePlatforms={activePlatforms}
+        onTogglePlatform={togglePlatform}
+        researchModel={researchModel}
+        setResearchModel={setResearchModel}
+        contentModel={contentModel}
+        setContentModel={setContentModel}
+      />
+
+      {/* Post preview */}
+      <PostPreviewPanel
+        post={selectedPost}
+        isOpen={previewOpen}
+        onClose={closePost}
+        onApprove={approvePost}
+        onReject={rejectPost}
+      />
     </div>
   );
 }

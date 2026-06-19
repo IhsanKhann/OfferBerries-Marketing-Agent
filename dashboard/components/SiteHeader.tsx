@@ -1,7 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { LogOut } from 'lucide-react';
+import { LogOut, User } from 'lucide-react';
 
 export function SiteHeader() {
   const router = useRouter();
@@ -18,7 +18,9 @@ export function SiteHeader() {
         <span className="site-logo-name">OfferBerries</span>
       </Link>
       <div className="site-header-right">
-        <span className="site-header-user-chip">I</span>
+        <Link href="/profile" className="site-header-profile-btn" title="Profile">
+          <User size={15} />
+        </Link>
         <button className="site-header-signout" onClick={handleSignOut} title="Sign out">
           <LogOut size={16} />
           <span>Sign out</span>

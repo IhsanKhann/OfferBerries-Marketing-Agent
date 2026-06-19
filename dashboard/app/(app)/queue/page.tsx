@@ -189,10 +189,7 @@ export default function QueuePage() {
               setTopic={setTopic}
               running={running}
               onRun={runAgent}
-              researchModel={researchModel}
-              setResearchModel={setResearchModel}
-              contentModel={contentModel}
-              setContentModel={setContentModel}
+              onOpenOptions={() => {}}
               onAttachFiles={addImages}
               onAttachImages={addImages}
             />

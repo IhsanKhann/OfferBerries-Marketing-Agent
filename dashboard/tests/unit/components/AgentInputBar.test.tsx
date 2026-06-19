@@ -8,10 +8,7 @@ const DEFAULT_PROPS = {
   setTopic: vi.fn(),
   running: false,
   onRun: vi.fn(),
-  researchModel: 'sonar',
-  setResearchModel: vi.fn(),
-  contentModel: 'anthropic/claude-sonnet-4-6',
-  setContentModel: vi.fn(),
+  onOpenOptions: vi.fn(),
   onAttachFiles: vi.fn(),
   onAttachImages: vi.fn(),
 };
@@ -22,40 +19,16 @@ describe('AgentInputBar', () => {
     expect(screen.getByPlaceholderText(/Enter a topic/)).toBeInTheDocument();
   });
 
-  it('renders research model selector', () => {
+  it('renders options button', () => {
     render(<AgentInputBar {...DEFAULT_PROPS} />);
-    expect(screen.getByLabelText('Research model')).toBeInTheDocument();
+    expect(screen.getByTitle(/Options/)).toBeInTheDocument();
   });
 
-  it('renders content model selector', () => {
-    render(<AgentInputBar {...DEFAULT_PROPS} />);
-    expect(screen.getByLabelText('Content model')).toBeInTheDocument();
-  });
-
-  it('research model select shows current value', () => {
-    render(<AgentInputBar {...DEFAULT_PROPS} researchModel="sonar-pro" />);
-    const select = screen.getByLabelText('Research model') as HTMLSelectElement;
-    expect(select.value).toBe('sonar-pro');
-  });
-
-  it('content model select shows current value', () => {
-    render(<AgentInputBar {...DEFAULT_PROPS} contentModel="google/gemini-2.5-flash" />);
-    const select = screen.getByLabelText('Content model') as HTMLSelectElement;
-    expect(select.value).toBe('google/gemini-2.5-flash');
-  });
-
-  it('calls setResearchModel when research model is changed', async () => {
-    const setResearchModel = vi.fn();
-    render(<AgentInputBar {...DEFAULT_PROPS} setResearchModel={setResearchModel} />);
-    await userEvent.selectOptions(screen.getByLabelText('Research model'), 'sonar-deep-research');
-    expect(setResearchModel).toHaveBeenCalledWith('sonar-deep-research');
-  });
-
-  it('calls setContentModel when content model is changed', async () => {
-    const setContentModel = vi.fn();
-    render(<AgentInputBar {...DEFAULT_PROPS} setContentModel={setContentModel} />);
-    await userEvent.selectOptions(screen.getByLabelText('Content model'), 'google/gemini-2.5-flash');
-    expect(setContentModel).toHaveBeenCalledWith('google/gemini-2.5-flash');
+  it('calls onOpenOptions when options button is clicked', async () => {
+    const onOpenOptions = vi.fn();
+    render(<AgentInputBar {...DEFAULT_PROPS} onOpenOptions={onOpenOptions} />);
+    await userEvent.click(screen.getByTitle(/Options/));
+    expect(onOpenOptions).toHaveBeenCalled();
   });
 
   it('run button is disabled when topic is empty', () => {
@@ -120,7 +93,7 @@ describe('AgentInputBar', () => {
     const { container } = render(<AgentInputBar {...DEFAULT_PROPS} />);
     const textarea = screen.getByPlaceholderText(/Enter a topic/);
     await userEvent.click(textarea);
-    await userEvent.tab(); // blur
+    await userEvent.tab();
     expect(container.querySelector('.agent-input-bar__wrap')).not.toHaveClass('focused');
   });
 

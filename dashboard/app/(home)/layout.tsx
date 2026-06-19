@@ -1,6 +1,6 @@
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
-import { Sidebar } from '../(app)/sidebar';
+import { SiteHeader } from '@/components/SiteHeader';
 
 export default function HomeLayout({ children }: { children: React.ReactNode }) {
   const cookieStore = cookies();
@@ -8,11 +8,9 @@ export default function HomeLayout({ children }: { children: React.ReactNode }) 
   if (!session) redirect('/login');
 
   return (
-    <div className="shell">
-      <Sidebar />
-      <div className="main-content" id="main-content">
-        {children}
-      </div>
+    <div className="home-outer">
+      <SiteHeader />
+      <main className="home-main">{children}</main>
     </div>
   );
 }

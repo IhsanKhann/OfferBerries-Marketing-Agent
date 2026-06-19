@@ -1,26 +1,20 @@
 'use client';
 import { useRef, useState, KeyboardEvent } from 'react';
-import { Paperclip, Image, Wand2 } from 'lucide-react';
-import { RESEARCH_MODELS, CONTENT_MODELS } from '../../../hooks/useAgentRun';
+import { Paperclip, Image, Wand2, SlidersHorizontal } from 'lucide-react';
 
 interface Props {
   topic: string;
   setTopic: (v: string) => void;
   running: boolean;
   onRun: () => void;
-  researchModel: string;
-  setResearchModel: (id: string) => void;
-  contentModel: string;
-  setContentModel: (id: string) => void;
+  onOpenOptions: () => void;
   onAttachFiles: (files: FileList) => void;
   onAttachImages: (files: FileList) => void;
 }
 
 export default function AgentInputBar({
   topic, setTopic, running, onRun,
-  researchModel, setResearchModel,
-  contentModel, setContentModel,
-  onAttachFiles, onAttachImages,
+  onOpenOptions, onAttachFiles, onAttachImages,
 }: Props) {
   const [focused, setFocused] = useState(false);
   const fileRef  = useRef<HTMLInputElement>(null);
@@ -52,7 +46,7 @@ export default function AgentInputBar({
       />
 
       <div className={`agent-input-bar__wrap${focused ? ' focused' : ''}${running ? ' disabled' : ''}`}>
-        {/* Left icon buttons */}
+        {/* Left: attach buttons */}
         <button
           type="button"
           className="input-icon-btn"
@@ -65,7 +59,7 @@ export default function AgentInputBar({
         <button
           type="button"
           className="input-icon-btn"
-          title="Attach image reference"
+          title="Attach image"
           onClick={() => imageRef.current?.click()}
           disabled={running}
         >
@@ -84,32 +78,17 @@ export default function AgentInputBar({
           disabled={running}
         />
 
-        {/* Right cluster: two model selectors + run button */}
+        {/* Right: options + run */}
         <div className="input-right-cluster">
-          <select
-            className="model-select"
-            value={researchModel}
-            onChange={e => setResearchModel(e.target.value)}
+          <button
+            type="button"
+            className="input-options-btn"
+            title="Options — platforms, models"
+            onClick={onOpenOptions}
             disabled={running}
-            title="Research model (Perplexity)"
-            aria-label="Research model"
           >
-            {RESEARCH_MODELS.map(m => (
-              <option key={m.id} value={m.id}>{m.label} {m.badge}</option>
-            ))}
-          </select>
-          <select
-            className="model-select"
-            value={contentModel}
-            onChange={e => setContentModel(e.target.value)}
-            disabled={running}
-            title="Content model"
-            aria-label="Content model"
-          >
-            {CONTENT_MODELS.map(m => (
-              <option key={m.id} value={m.id}>{m.label}</option>
-            ))}
-          </select>
+            <SlidersHorizontal size={15} />
+          </button>
           <button
             type="button"
             className="input-run-btn"
