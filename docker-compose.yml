@@ -51,7 +51,8 @@ services:
   # ── Postiz ─────────────────────────────────────────────────────────────────
   postiz:
     image: ghcr.io/gitroomhq/postiz-app:latest
-    restart: unless-stopped
+    restart: "no"
+    profiles: ["postiz"]
     depends_on:
       postgres:
         condition: service_healthy
@@ -63,7 +64,6 @@ services:
       MAIN_URL: https://agent.${DOMAIN}/postiz
       JWT_SECRET: ${POSTIZ_SECRET}
       NEXT_PUBLIC_BACKEND_URL: https://agent.${DOMAIN}/postiz
-      TEMPORAL_ADDRESS: offerberries-marketing-agent-temporal-1:7233
       STORAGE_PROVIDER: local
       UPLOAD_DIRECTORY: /app/uploads
     volumes:
@@ -262,7 +262,6 @@ services:
     networks:
       - marketing-net
     depends_on:
-      - postiz
       - dashboard
       - n8n
       - open-design

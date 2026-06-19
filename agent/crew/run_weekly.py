@@ -262,6 +262,7 @@ async def create_run(
         execution_mode=req.execution_mode,
         stages_enabled=req.stages_enabled,
         provided_content=req.provided_content,
+        project_id=req.project_id,
     )
 
     await db["agent_runs"].insert_one(run.to_mongo())
@@ -277,6 +278,7 @@ async def create_run(
 async def list_runs(
     limit: int = 20,
     status: Optional[str] = None,
+    project_id: Optional[str] = None,
     x_api_key: Optional[str] = Header(None),
 ):
     _require_owner(x_api_key)
@@ -285,6 +287,8 @@ async def list_runs(
     query: dict = {"tenant_id": _tenant_id()}
     if status:
         query["overall_status"] = status
+    if project_id:
+        query["project_id"] = project_id
     try:
         cursor = db["agent_runs"].find(query, {"state_snapshot": 0}).sort("created_at", -1).limit(limit)
         docs = await cursor.to_list(length=limit)

@@ -87,7 +87,7 @@ export function useAgentRun(onComplete: () => void, onMessage: (msg: string) => 
     return () => clearInterval(t);
   }, [runId, runStatus, onComplete, onMessage]);
 
-  const startRun = useCallback(async (topic: string, platforms: string[]) => {
+  const startRun = useCallback(async (topic: string, platforms: string[], projectId?: string) => {
     setRunning(true);
     setRunStatus('starting');
     setCurrentStage('');
@@ -108,10 +108,13 @@ export function useAgentRun(onComplete: () => void, onMessage: (msg: string) => 
       ]);
     } catch { /* non-fatal */ }
 
+    const body: Record<string, unknown> = { topic, platforms, execution_mode: 'automated' };
+    if (projectId) body.project_id = projectId;
+
     const res = await fetch('/api/proxy/runs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ topic, platforms, execution_mode: 'automated' }),
+      body: JSON.stringify(body),
     });
 
     if (res.ok) {

@@ -29,6 +29,10 @@ class AgentState(TypedDict, total=False):
     content_model: str
     research_model: str
     raw_topic: str
+    project_id: Optional[str]
+    memory_enabled: bool
+    prior_context: list[str]
+    tenant_id: str
 
 
 async def _call_tool(tool_name: str, arguments: dict, api_key: str = None, run_id: str = "") -> dict:
@@ -50,11 +54,48 @@ async def _call_tool(tool_name: str, arguments: dict, api_key: str = None, run_i
 async def research_node(state: AgentState) -> AgentState:
     logger.info(f"[{state['run_id']}] Research node starting for topic: {state['topic']}")
 
+    # Retrieve prior project context if memory is enabled
+    if state.get("memory_enabled") and state.get("project_id"):
+        openai_key = os.getenv("OPENAI_API_KEY", "")
+        mongo_uri = os.getenv("MONGODB_URI", "")
+        mongo_db = os.getenv("MONGODB_DB", "offerberries_agent")
+        if openai_key and mongo_uri:
+            try:
+                from motor.motor_asyncio import AsyncIOMotorClient
+                from sys import modules
+                # Reuse existing db connection if available via imported module
+                crew_db = None
+                rw = modules.get("run_weekly")
+                if rw and getattr(rw, "db", None) is not None:
+                    crew_db = rw.db
+                else:
+                    _client = AsyncIOMotorClient(mongo_uri)
+                    crew_db = _client[mongo_db]
+                from services.context_service import retrieve_relevant_context
+                chunks = await retrieve_relevant_context(
+                    db=crew_db,
+                    tenant_id=state.get("tenant_id", ""),
+                    project_id=state["project_id"],
+                    query_text=state["topic"],
+                    api_key=openai_key,
+                    k=5,
+                )
+                if chunks:
+                    state["prior_context"] = chunks
+                    logger.info(f"[{state['run_id']}] Retrieved {len(chunks)} prior context chunks")
+            except Exception as exc:
+                logger.warning(f"[{state['run_id']}] Prior context retrieval failed (non-fatal): {exc}")
+
     research_model = state.get("research_model") or "sonar"
+    tool_args: dict = {"topic": state["topic"], "platform": "all", "model": research_model}
+    prior = state.get("prior_context") or []
+    if prior:
+        tool_args["prior_context"] = prior
+
     try:
         brief = await _call_tool(
             "research_trends",
-            {"topic": state["topic"], "platform": "all", "model": research_model},
+            tool_args,
             run_id=state["run_id"],
         )
         state["brief"] = brief

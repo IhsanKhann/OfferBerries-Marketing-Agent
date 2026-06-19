@@ -5,7 +5,7 @@ export default function Home() {
   const cookieStore = cookies();
   const session = cookieStore.get('ofb_session');
   if (session) {
-    redirect('/queue');
+    redirect('/projects');
   } else {
     redirect('/login');
   }
